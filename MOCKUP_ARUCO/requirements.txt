@@ -1,0 +1,13 @@
+# Dependencias del sistema de localización ArUco para drones en almacén
+# Instalar con: pip install -r requirements.txt
+
+# ── Visión por computadora ─────────────────────────────────────────────────
+opencv-contrib-python>=4.8.0   # OpenCV con módulo ArUco incluido
+numpy>=1.24.0                   # Álgebra lineal y arrays
+
+# ── Utilidades ─────────────────────────────────────────────────────────────
+# (sin dependencias adicionales necesarias para el núcleo del sistema)
+
+# ── Opcionales (para análisis post-vuelo) ──────────────────────────────────
+# matplotlib>=3.7.0             # Gráficas de trayectoria offline
+# pandas>=2.0.0                 # Análisis del log de poses (pose_log.json)

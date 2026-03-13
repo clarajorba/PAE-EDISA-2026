@@ -1,0 +1,95 @@
+{
+  "warehouse": {
+    "name": "Almacén Principal",
+    "dimensions": {
+      "width_m": 20.0,
+      "height_m": 15.0,
+      "ceiling_m": 5.0
+    }
+  },
+  "aruco": {
+    "dictionary": "DICT_6X6_250",
+    "marker_size_m": 0.15,
+    "min_markers_for_localization": 1
+  },
+  "markers": [
+    {
+      "id": 0,
+      "position": {"x": 0.0,  "y": 0.0,  "z": 2.5},
+      "rotation_deg": {"rx": 0.0, "ry": 0.0, "rz": 0.0},
+      "location": "Esquina NO - Pared Norte"
+    },
+    {
+      "id": 1,
+      "position": {"x": 10.0, "y": 0.0,  "z": 2.5},
+      "rotation_deg": {"rx": 0.0, "ry": 0.0, "rz": 0.0},
+      "location": "Centro - Pared Norte"
+    },
+    {
+      "id": 2,
+      "position": {"x": 20.0, "y": 0.0,  "z": 2.5},
+      "rotation_deg": {"rx": 0.0, "ry": 0.0, "rz": 0.0},
+      "location": "Esquina NE - Pared Norte"
+    },
+    {
+      "id": 3,
+      "position": {"x": 20.0, "y": 7.5,  "z": 2.5},
+      "rotation_deg": {"rx": 0.0, "ry": -90.0, "rz": 0.0},
+      "location": "Centro - Pared Este"
+    },
+    {
+      "id": 4,
+      "position": {"x": 20.0, "y": 15.0, "z": 2.5},
+      "rotation_deg": {"rx": 0.0, "ry": 180.0, "rz": 0.0},
+      "location": "Esquina SE - Pared Sur"
+    },
+    {
+      "id": 5,
+      "position": {"x": 10.0, "y": 15.0, "z": 2.5},
+      "rotation_deg": {"rx": 0.0, "ry": 180.0, "rz": 0.0},
+      "location": "Centro - Pared Sur"
+    },
+    {
+      "id": 6,
+      "position": {"x": 0.0,  "y": 15.0, "z": 2.5},
+      "rotation_deg": {"rx": 0.0, "ry": 180.0, "rz": 0.0},
+      "location": "Esquina SO - Pared Sur"
+    },
+    {
+      "id": 7,
+      "position": {"x": 0.0,  "y": 7.5,  "z": 2.5},
+      "rotation_deg": {"rx": 0.0, "ry": 90.0, "rz": 0.0},
+      "location": "Centro - Pared Oeste"
+    },
+    {
+      "id": 8,
+      "position": {"x": 10.0, "y": 7.5,  "z": 5.0},
+      "rotation_deg": {"rx": 90.0, "ry": 0.0, "rz": 0.0},
+      "location": "Centro - Techo"
+    },
+    {
+      "id": 9,
+      "position": {"x": 5.0,  "y": 5.0,  "z": 5.0},
+      "rotation_deg": {"rx": 90.0, "ry": 0.0, "rz": 0.0},
+      "location": "Zona A - Techo"
+    },
+    {
+      "id": 10,
+      "position": {"x": 15.0, "y": 5.0,  "z": 5.0},
+      "rotation_deg": {"rx": 90.0, "ry": 0.0, "rz": 0.0},
+      "location": "Zona B - Techo"
+    },
+    {
+      "id": 11,
+      "position": {"x": 5.0,  "y": 10.0, "z": 5.0},
+      "rotation_deg": {"rx": 90.0, "ry": 0.0, "rz": 0.0},
+      "location": "Zona C - Techo"
+    },
+    {
+      "id": 12,
+      "position": {"x": 15.0, "y": 10.0, "z": 5.0},
+      "rotation_deg": {"rx": 90.0, "ry": 0.0, "rz": 0.0},
+      "location": "Zona D - Techo"
+    }
+  ]
+}

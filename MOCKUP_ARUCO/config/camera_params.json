@@ -1,0 +1,14 @@
+{
+  "_comment": "Parámetros de cámara. Reemplaza con los valores de tu calibración real.",
+  "image_width": 1280,
+  "image_height": 720,
+  "camera_matrix": [
+    [921.17, 0.0,    459.90],
+    [0.0,    919.02, 351.24],
+    [0.0,    0.0,    1.0   ]
+  ],
+  "dist_coefficients": [-0.033458, 0.105152, 0.001256, -0.006647, 0.0],
+  "calibration_error_rms": 0.482,
+  "calibration_date": "2026-02-23",
+  "camera_model": "Generic 1280x720 Camera (reemplazar con modelo real)"
+}
