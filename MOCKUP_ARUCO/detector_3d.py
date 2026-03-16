@@ -76,15 +76,19 @@ class AppConfig:
     aruco_dict: int = cv2.aruco.DICT_4X4_1000
     config_path: str = "config/markers_3d.json"
 
-    # Intrínsecos (SUSTITUIR con calibración real para el dron)
+    # Intrínsecos (calibrados — reproyección 0.22px)
     camera_matrix: np.ndarray = field(default_factory=lambda: np.array([
-        [921.17,   0.00, 459.90],
-        [  0.00, 919.02, 351.24],
-        [  0.00,   0.00,   1.00],
+        [    974.90,       0.00,     627.25],
+        [      0.00,     974.61,     365.31],
+        [      0.00,       0.00,       1.00],
     ], dtype=np.float64))
-    dist_coeffs: np.ndarray = field(
-        default_factory=lambda: np.zeros((5, 1), dtype=np.float64)
-    )
+    dist_coeffs: np.ndarray = field(default_factory=lambda: np.array([
+        [-0.217752],
+        [ 2.492355],
+        [-0.003245],
+        [-0.004504],
+        [-7.845957],
+    ], dtype=np.float64))
 
     # Kalman
     kalman_process_noise: float = 0.05   # incertidumbre del modelo de movimiento
