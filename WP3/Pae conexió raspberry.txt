@@ -1,0 +1,11 @@
+--Obrir terminal raspberry--
+
+ip LAN portatil-raspberry: 192.168.137.129
+ip wifi "Iphone de Aitor": 172.20.10.3
+
+ssh pi@172.20.10.3
+
+
+--Enviar video--
+
+rpicam-vid -t 0 --codec mjpeg --width 640 --height 480 --framerate 15 --listen -o tcp://0.0.0.0:8888
