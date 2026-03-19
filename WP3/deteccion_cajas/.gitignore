@@ -1,6 +1,5 @@
 venv/
 weights/
-resultados/
 __pycache__/
 *.pth
 *.pyc

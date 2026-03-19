@@ -63,14 +63,14 @@ du -sh weights/groundingdino_swint_ogc.pth
 
 ### 5. Copiar el script detector
 
-Coloca el archivo `detector_almacen.py` dentro de la carpeta `GroundingDINO/`.
+Coloca el archivo `detector_almacen.py` dentro de la carpeta `deteccion_cajas/`.
 
 ---
 
 ## 🗂️ Estructura de carpetas
 
 ```
-GroundingDINO/
+deteccion_cajas/
 ├── weights/
 │   └── groundingdino_swint_ogc.pth   ← modelo descargado
 ├── groundingdino/
