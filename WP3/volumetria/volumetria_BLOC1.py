@@ -60,25 +60,54 @@ def detectar_qualsevol_caixa(ruta_imatge, mostrar_visualment=True):
     # Multipliquem per 255 perquè els "1" es tornin blancs purs (255)
     mascara_binaria = mascara_sam * 255
 
-    # PAS 3: EXTRACCIÓ DE VÈRTEXS AMB OPENCV
+# PAS 3: EXTRACCIÓ INTEL·LIGENT DE VÈRTEXS
     contorns, _ = cv2.findContours(mascara_binaria, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     
     if not contorns:
+        print("Error: No s'ha trobat cap contorn a la màscara.")
         return None
         
     contorn_principal = max(contorns, key=cv2.contourArea)
 
-    # Simplificació a línies rectes
-    perimetre = cv2.arcLength(contorn_principal, True)
-    tolerancia = 0.04 * perimetre 
-    vertexs = cv2.approxPolyDP(contorn_principal, tolerancia, True)
+    # 1. Apliquem l'envolupant convexa (Convex Hull) per suavitzar bonys i arrugues
+    hull = cv2.convexHull(contorn_principal)
+    perimetre = cv2.arcLength(hull, True)
+
+    # 2. Cerca dinàmica de l'hexàgon (6 punts) o pentàgon (5 punts)
+    vertexs_ideals = None
+    
+    # Anem provant toleràncies des d'un 1% fins a un 10%
+    for factor in np.arange(0.01, 0.10, 0.002):
+        tolerancia = factor * perimetre
+        aproximacio = cv2.approxPolyDP(hull, tolerancia, True)
+        
+        # Ens interessa principalment trobar els 6 vèrtexs de la caixa 3D
+        if len(aproximacio) == 6:
+            vertexs_ideals = aproximacio
+            break 
+        # Si en trobem 5, ens ho guardem a la recambra per si no arribem a trobar els 6
+        elif len(aproximacio) == 5 and vertexs_ideals is None:
+            vertexs_ideals = aproximacio
+
+    # Si després de tot el bucle no hem trobat ni 5 ni 6 punts, fem una aproximació per defecte
+    if vertexs_ideals is not None:
+        vertexs = vertexs_ideals
+    else:
+        print("Avís: No s'ha pogut forçar un polígon de 5 o 6 costats. S'usa l'aproximació base.")
+        vertexs = cv2.approxPolyDP(hull, 0.04 * perimetre, True)
 
     coordenades = [(int(p[0][0]), int(p[0][1])) for p in vertexs]
-    print(f"ÈXIT! S'han calculat {len(coordenades)} vèrtexs a la silueta.")
-
+    print(f"ÈXIT! S'han calculat {len(coordenades)} vèrtexs a la silueta suavitzada.")
+    
     # PAS 4: PINTAR I GUARDAR EL RESULTAT
     if mostrar_visualment:
-        cv2.drawContours(img_resultat, [vertexs], -1, (0, 255, 0), 3)
+        # 1. Convertim la llista normal al format matriu que demana OpenCV
+        vertexs_dibuix = np.array(coordenades, dtype=np.int32).reshape((-1, 1, 2))
+        
+        # 2. Ara sí, dibuixem les línies verdes usant la matriu convertida
+        cv2.drawContours(img_resultat, [vertexs_dibuix], -1, (0, 255, 0), 3)
+        
+        # 3. Dibuixem els punts vermells i els textos (això sí que accepta tuples normals)
         for i, (x, y) in enumerate(coordenades):
             cv2.circle(img_resultat, (x, y), 8, (0, 0, 255), -1)
             cv2.putText(img_resultat, f"P{i+1}", (x+15, y-10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
