@@ -1,26 +1,22 @@
 """
-calibrar_camara.py
-==================
-Script de calibración de cámara para Raspberry Pi Camera Module 2 NoIR.
-Usa picamera2 (stack libcamera) para capturar frames y OpenCV para detectar
-el patrón de tablero de ajedrez y calcular los parámetros intrínsecos.
-
-Requisitos del sistema (Raspberry Pi OS Bullseye / Bookworm):
-  sudo apt install -y python3-picamera2 python3-opencv python3-numpy
+calibrar_camara_pc.py
+=====================
+Script de calibración de cámara para webcam de ordenador (Windows/macOS/Linux).
+Usa cv2.VideoCapture directamente, sin necesidad de picamera2.
 
 Instrucciones:
-  1. Conecta la Camera Module 2 NoIR al puerto CSI de la Raspberry Pi.
-  2. Habilita la cámara con: sudo raspi-config -> Interface Options -> Camera
-  3. Imprime un tablero de ajedrez de 8x8 cuadrados (7x7 esquinas interiores).
+  1. Instala las dependencias:
+         pip install opencv-contrib-python numpy
+  2. Imprime un tablero de ajedrez de 8x8 cuadrados (7x7 esquinas interiores).
      Descárgalo en: https://calib.io/pages/camera-calibration-pattern-generator
-  4. Mide con regla el lado de un cuadrado en metros y ajusta SQUARE_SIZE.
-  5. Ejecuta este script desde la raíz del proyecto:
-         python calibration/calibrar_camara.py
-  6. Con un monitor conectado a la Pi (o X11 via SSH), verás el feed en vivo.
-     Mueve el tablero a distintas posiciones. Pulsa ESPACIO para capturar.
-     Mínimo 15 capturas, recomendable 20-30.
-  7. Pulsa 'q' para calibrar y guardar en config/camera_calibration.json.
-  8. Copia los valores de camera_matrix y dist_coeffs a AppConfig en detector_3d.py.
+  3. Mide con regla el lado de un cuadrado en metros y ajusta SQUARE_SIZE.
+  4. Ejecuta desde la raíz del proyecto MOCKUP_ARUCO/:
+         python calibration/calibrar_camara_pc.py
+  5. Mueve el tablero delante de la cámara en distintas posiciones y ángulos.
+     Pulsa ESPACIO para capturar (mínimo 15, recomendable 20-30).
+  6. Pulsa 'q' cuando tengas suficientes capturas.
+     El script calibra y guarda el resultado en config/camera_calibration_pc.json.
+  7. Copia los valores de camera_matrix y dist_coeffs a AppConfig en detector_3d.py.
 """
 
 import cv2
@@ -28,14 +24,6 @@ import numpy as np
 import json
 from datetime import datetime
 from pathlib import Path
-
-# ─── INTENTO DE IMPORTAR picamera2 ────────────────────────────────────────────
-try:
-    from picamera2 import Picamera2
-    USAR_PICAMERA2 = True
-except ImportError:
-    USAR_PICAMERA2 = False
-    print("[AVISO] picamera2 no disponible. Usando cv2.VideoCapture como fallback.")
 
 
 # ─── CONFIGURACIÓN ────────────────────────────────────────────────────────────
@@ -46,14 +34,10 @@ BOARD_SIZE = (7, 7)
 
 # Tamaño real de cada cuadrado en METROS
 # Mídelo con regla después de imprimir (la impresora puede escalar)
-SQUARE_SIZE = 0.025  # 2.5 cm — ajusta según tu impresión
+SQUARE_SIZE = 0.010  # 1.0 cm — ajusta según tu impresión
 
-# Resolución de captura (Camera Module 2 soporta hasta 3280x2464)
-# Para calibración es suficiente con 1280x720 y va más fluido en la Pi
-RESOLUCION = (1280, 720)
-
-# Fuente de vídeo — solo se usa si picamera2 NO está disponible
-VIDEO_SOURCE_FALLBACK = 0
+# Índice de la cámara (0 = webcam principal, 1 = segunda cámara, etc.)
+VIDEO_SOURCE = 0
 
 # Mínimo de capturas para calibrar
 MIN_CAPTURAS = 15
@@ -61,55 +45,7 @@ MIN_CAPTURAS = 15
 # Directorio de salida
 BASE_DIR = Path(__file__).resolve().parents[1]
 OUTPUT_DIR = BASE_DIR / "config"
-OUTPUT_FILE = OUTPUT_DIR / "camera_calibration.json"
-
-
-# ─── APERTURA DE CÁMARA ───────────────────────────────────────────────────────
-
-def abrir_camara():
-    """
-    Abre la Camera Module 2 NoIR via picamera2.
-    Si no está disponible, fallback a cv2.VideoCapture.
-    Devuelve (read_fn, release_fn) donde read_fn() -> (ok, frame_BGR).
-    """
-    if USAR_PICAMERA2:
-        picam2 = Picamera2()
-        config = picam2.create_video_configuration(
-            main={"format": "BGR888", "size": RESOLUCION}
-        )
-        picam2.configure(config)
-        picam2.start()
-        print(f"  Cámara abierta (picamera2): {RESOLUCION[0]}x{RESOLUCION[1]}")
-
-        def read_fn():
-            frame = picam2.capture_array()
-            return True, frame
-
-        def release_fn():
-            picam2.stop()
-
-        return read_fn, release_fn
-
-    else:
-        cap = cv2.VideoCapture(VIDEO_SOURCE_FALLBACK)
-        if not cap.isOpened():
-            raise RuntimeError(
-                f"No se puede abrir la cámara (source={VIDEO_SOURCE_FALLBACK}). "
-                "Comprueba que la cámara está conectada y habilitada."
-            )
-        cap.set(cv2.CAP_PROP_FRAME_WIDTH, RESOLUCION[0])
-        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, RESOLUCION[1])
-        w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-        h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        print(f"  Cámara abierta (VideoCapture): {w}x{h}")
-
-        def read_fn():
-            return cap.read()
-
-        def release_fn():
-            cap.release()
-
-        return read_fn, release_fn
+OUTPUT_FILE = OUTPUT_DIR / "camera_calibration_pc.json"
 
 
 # ─── FUNCIONES ────────────────────────────────────────────────────────────────
@@ -124,7 +60,7 @@ def generar_puntos_objeto():
     return objp
 
 
-def capturar_imagenes(read_fn):
+def capturar_imagenes(cap):
     """
     Muestra el feed de cámara y permite capturar frames con ESPACIO.
     Devuelve listas de puntos objeto y puntos imagen.
@@ -142,22 +78,21 @@ def capturar_imagenes(read_fn):
     n_capturas = 0
 
     print("\n" + "=" * 55)
-    print("  CALIBRACIÓN — Camera Module 2 NoIR")
+    print("  CALIBRACIÓN — Webcam PC")
     print("=" * 55)
     print(f"  Tablero: {BOARD_SIZE[0]}x{BOARD_SIZE[1]} esquinas interiores")
     print(f"  Tamaño cuadrado: {SQUARE_SIZE * 100:.1f} cm")
-    print(f"  Resolución: {RESOLUCION[0]}x{RESOLUCION[1]}")
     print(f"  Mínimo capturas: {MIN_CAPTURAS}")
     print("=" * 55)
     print("\n  ESPACIO = capturar  |  q = calibrar y salir\n")
 
-    win = "Calibracion - mueve el tablero"
+    win = "Calibracion PC - mueve el tablero"
     cv2.namedWindow(win, cv2.WINDOW_NORMAL)
     cv2.resizeWindow(win, 960, 540)
 
     while True:
-        ok, frame = read_fn()
-        if not ok or frame is None:
+        ok, frame = cap.read()
+        if not ok:
             print("  [ERROR] No se pudo leer frame de la cámara.")
             break
 
@@ -226,7 +161,7 @@ def capturar_imagenes(read_fn):
 
 def calibrar(obj_points, img_points, img_size):
     """Ejecuta la calibración y devuelve los parámetros."""
-    print("\n  Calibrando... (puede tardar unos segundos en la Raspberry Pi)")
+    print("\n  Calibrando...")
 
     ret, camera_matrix, dist_coeffs, rvecs, tvecs = cv2.calibrateCamera(
         obj_points, img_points, img_size, None, None,
@@ -255,7 +190,7 @@ def guardar_calibracion(camera_matrix, dist_coeffs, mean_err, img_size):
 
     data = {
         "calibration_date": datetime.now().isoformat(),
-        "camera_model": "Raspberry Pi Camera Module 2 NoIR",
+        "camera_model": "Webcam PC",
         "image_size": list(img_size),
         "reprojection_error_px": round(float(mean_err), 4),
         "camera_matrix": camera_matrix.tolist(),
@@ -311,16 +246,23 @@ def mostrar_resultados(camera_matrix, dist_coeffs, mean_err):
 # ─── MAIN ─────────────────────────────────────────────────────────────────────
 
 def main():
-    try:
-        read_fn, release_fn = abrir_camara()
-    except RuntimeError as e:
-        print(f"\n  ERROR: {e}")
+    cap = cv2.VideoCapture(VIDEO_SOURCE)
+    if not cap.isOpened():
+        print(f"\n  ERROR: No se puede abrir la cámara (source={VIDEO_SOURCE}).")
+        print("  Comprueba que la webcam está conectada y no la está usando otra app.")
         return
 
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+
+    w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    print(f"\n  Cámara abierta: {w}x{h}  (source={VIDEO_SOURCE})")
+
     try:
-        obj_points, img_points, img_size = capturar_imagenes(read_fn)
+        obj_points, img_points, img_size = capturar_imagenes(cap)
     finally:
-        release_fn()
+        cap.release()
         cv2.destroyAllWindows()
 
     if len(obj_points) < MIN_CAPTURAS:
