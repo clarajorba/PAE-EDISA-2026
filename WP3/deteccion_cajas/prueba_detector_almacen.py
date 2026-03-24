@@ -30,7 +30,7 @@ FOTOS_DIR    = "../fotos_caixa/"
 #   IMAGE_NAME = "foto1.jpg"
 #   IMAGE_NAME = "20260218_131604.jpg"
 #   IMAGE_NAME = None   ← procesa TODAS las imágenes de la carpeta
-IMAGE_NAME   = "resultado_20260218_131604.jpg"
+IMAGE_NAME   = "20260218_131604.jpg"
 
 # --- Carpeta base donde se guardan los resultados ---
 # Cada ejecución crea una subcarpeta nueva con timestamp
@@ -40,11 +40,11 @@ OUTPUT_BASE  = "comparacion_resultados/"
 TEXT_PROMPT  = "cardboard box . box . carton . stacked cardboard box . warehouse package ."
 
 # --- Umbrales ---
-BOX_THRESHOLD       = 0.3
+BOX_THRESHOLD       = 0.19
 TEXT_THRESHOLD      = 0.3
-IOU_THRESHOLD       = 0.15
-CONTAINMENT_THRESHOLD = 0.8
-CENTER_DIST_THRESHOLD = 0.2
+IOU_THRESHOLD       = 0.7
+CONTAINMENT_THRESHOLD = 0.3
+CENTER_DIST_THRESHOLD = 0.05
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -132,7 +132,7 @@ def draw_params_overlay(image, n_final):
         f"IOU: {IOU_THRESHOLD}",
         f"CONT: {CONTAINMENT_THRESHOLD}",
         f"CENTER: {CENTER_DIST_THRESHOLD}"
-        f"Cajas: {n_final}",
+        #f"Cajas: {n_final}",
     ]
 
     font       = cv2.FONT_HERSHEY_SIMPLEX
