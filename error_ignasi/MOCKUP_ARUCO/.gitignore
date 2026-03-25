@@ -10,3 +10,10 @@ camera_calibration.json
 
 #Ignore vscode AI rules
 .github/instructions/codacy.instructions.md
+
+# Generated outputs
+results/*
+!results/.gitkeep
+config/camera_profiles/*
+!config/camera_profiles/.gitkeep
+config/camera_calibration.json
