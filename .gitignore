@@ -10,3 +10,10 @@ camera_calibration.json
 
 #Ignore vscode AI rules
 .github/instructions/codacy.instructions.md
+
+# MOCKUP_ARUCO generated outputs
+MOCKUP_ARUCO/results/*
+!MOCKUP_ARUCO/results/.gitkeep
+MOCKUP_ARUCO/config/camera_profiles/*
+!MOCKUP_ARUCO/config/camera_profiles/.gitkeep
+MOCKUP_ARUCO/config/camera_calibration.json
