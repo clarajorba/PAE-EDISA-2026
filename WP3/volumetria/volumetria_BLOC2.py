@@ -5,82 +5,105 @@ import math
 from ultralytics import YOLO, SAM
 
 # ==========================================
-# CONFIGURACIÓ PRINCIPAL
+# CONFIGURACIÓ PRINCIPAL (BLOC 2)
 # ==========================================
 CARPETA_FOTOS_SEQ = "../fotos_caixa" 
 CARPETA_RESULTATS = "Resultats_BLOC2"
 
 # Paràmetres del LIDAR per al Tracking Dinàmic
-DISTANCIA_REF_CM = 150.0  # A quina distància hem fet les proves base?
-TRACKING_REF_PX = 200.0   # A aquesta distància base, quants píxels de marge donem?
+DISTANCIA_REF_CM = 150.0
+TRACKING_REF_PX = 400.0 
 
-print("Carregant models d'Intel·ligència Artificial (BLOC 2)...")
-detector = YOLO("yolov8s-world.pt")
-detector.set_classes(["box"]) 
-segmentador = SAM("mobile_sam.pt") 
+# PERSISTÈNCIA: Quants fotogrames seguits podem "perdre" la caixa abans d'oblidar-la?
+MAX_FRAMES_MISSING = 1
 # ==========================================
 
-# Variables globals per a la memòria a curt termini
+# Variables globals per a la memòria amb persistència
 següent_id_caixa = 1
-caixes_actives = {} # Format: { ID: (cx, cy) }
-colors_id = {}      # Format: { ID: (B, G, R) }
+caixes_actives_amb_memoria = {}
 
-def obtenir_color(id_caixa):
-    """Genera un color aleatori però fix i constant per a cada ID de caixa"""
-    if id_caixa not in colors_id:
-        # Usem l'ID com a llavor perquè el random doni sempre el mateix color per aquest ID
-        np.random.seed(id_caixa * 142) 
-        colors_id[id_caixa] = (int(np.random.randint(50, 255)), 
-                               int(np.random.randint(50, 255)), 
-                               int(np.random.randint(50, 255)))
-    return colors_id[id_caixa]
+def obtenir_color_aleatori():
+    return (int(np.random.randint(50, 255)), 
+            int(np.random.randint(50, 255)), 
+            int(np.random.randint(50, 255)))
 
-def assignar_id_per_centroide(cx, cy, distancia_lidar_cm):
-    """Compara el centroide actual amb els de l'historial adaptant-se a la profunditat"""
-    global següent_id_caixa, caixes_actives
+def tracking_robust_amb_memoria(deteccions_actuals, distancia_lidar_cm):
+    """
+    Algorisme de seguiment amb memòria i persistència
+    """
+    global següent_id_caixa, caixes_actives_amb_memoria
     
-    id_assignat = None
-    distancia_minima = float('inf')
+    id_actuals_assignats = []
     
-    # Tolerància dinàmica: si estem més a prop, donem més marge de píxels; si estem lluny, menys.
+    # Tolerància dinàmica basada en el LIDAR
     radi_tracking_dinamic = TRACKING_REF_PX * (DISTANCIA_REF_CM / distancia_lidar_cm)
     
-    # Busquem la caixa coneguda més propera
-    for id_conegut, (cx_antic, cy_antic) in caixes_actives.items():
-        dist = math.hypot(cx - cx_antic, cy - cy_antic)
+    ids_aparellats = {}
+
+    # 1. ASSOCIACIÓ
+    for cx_nova, cy_nova in deteccions_actuals:
+        id_conegut_mes_proper = None
+        distancia_minima = float('inf')
         
-        if dist < distancia_minima and dist < radi_tracking_dinamic:
-            distancia_minima = dist
-            id_assignat = id_conegut
+        for id_vell, info_vella in caixes_actives_amb_memoria.items():
+            if id_vell in ids_aparellats: continue 
+
+            cx_antic, cy_antic = info_vella['centroide']
+            dist = math.hypot(cx_nova - cx_antic, cy_nova - cy_antic)
             
-    # Actualitzem o creem la caixa
-    if id_assignat is not None:
-        caixes_actives[id_assignat] = (cx, cy) # Actualitzem la posició
-    else:
-        id_assignat = següent_id_caixa
-        caixes_actives[id_assignat] = (cx, cy) # En registrem una de nova
-        següent_id_caixa += 1
+            if dist < distancia_minima and dist < radi_tracking_dinamic:
+                distancia_minima = dist
+                id_conegut_mes_proper = id_vell
+                
+        # 2. ACTUALITZACIÓ
+        if id_conegut_mes_proper is not None:
+            caixes_actives_amb_memoria[id_conegut_mes_proper]['centroide'] = (cx_nova, cy_nova)
+            caixes_actives_amb_memoria[id_conegut_mes_proper]['misses'] = 0 
+            
+            info = caixes_actives_amb_memoria[id_conegut_mes_proper]
+            id_actuals_assignats.append({'id': id_conegut_mes_proper, 'centroide': (cx_nova, cy_nova), 'color': info['color']})
+            ids_aparellats[id_conegut_mes_proper] = True
         
-    return id_assignat
+        # 3. CREACIÓ
+        else:
+            nou_id = següent_id_caixa
+            color = obtenir_color_aleatori()
+            caixes_actives_amb_memoria[nou_id] = {'centroide': (cx_nova, cy_nova), 'misses': 0, 'color': color}
+            
+            id_actuals_assignats.append({'id': nou_id, 'centroide': (cx_nova, cy_nova), 'color': color})
+            següent_id_caixa += 1
+            ids_aparellats[nou_id] = True
+
+    # 4. GESTIÓ DELS "MISSES"
+    ids_a_eliminar = []
+    for id_vell in caixes_actives_amb_memoria:
+        if id_vell not in ids_aparellats:
+            caixes_actives_amb_memoria[id_vell]['misses'] += 1
+            if caixes_actives_amb_memoria[id_vell]['misses'] > MAX_FRAMES_MISSING:
+                ids_a_eliminar.append(id_vell)
+                
+    for i_d in ids_a_eliminar:
+        del caixes_actives_amb_memoria[i_d]
+        
+    return id_actuals_assignats
 
 def processar_sequencia():
-    print(f"\n--- INICIANT BLOC 2: DETECCIÓ I SEGUIMENT MULTICAIXA ---")
+    print(f"\n--- INICIANT BLOC 2 ESTABLE: SEGUIMENT AMB MEMÒRIA ---")
     
+    # Carreguem els models DINS la funció perquè no hi hagi problemes d'abast
+    print("Carregant models d'Intel·ligència Artificial...")
+    detector = YOLO("yolov8s-world.pt")
+    detector.set_classes(["box"]) 
+    segmentador = SAM("mobile_sam.pt") 
+
     if not os.path.exists(CARPETA_FOTOS_SEQ):
-        print(f"Error: No trobo la carpeta {CARPETA_FOTOS_SEQ}. Si us plau, crea-la i posa-hi les fotos en seqüència.")
+        print(f"Error: No trobo la carpeta {CARPETA_FOTOS_SEQ}.")
         return
         
     os.makedirs(CARPETA_RESULTATS, exist_ok=True)
-    
-    # Llegim i ORDENEM les fotos per simular el vol del dron en el temps
     arxius = [f for f in os.listdir(CARPETA_FOTOS_SEQ) if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
     arxius.sort() 
     
-    if not arxius:
-        print("La carpeta està buida.")
-        return
-
-    # MOCKUP: Simulació de la dada que rebrem del sensor LIDAR (es pot canviar fotograma a fotograma en el futur)
     distancia_actual_lidar = 150.0 
 
     for nom_arxiu in arxius:
@@ -90,64 +113,61 @@ def processar_sequencia():
         
         print(f"Processant fotograma: {nom_arxiu}...")
         
-        # 1. Detecció de totes les caixes
-        resultats_det = detector.predict(img, conf=0.1, verbose=False) 
-        
+        resultats_det = detector.predict(img, conf=0.2, verbose=False) 
+        info_caixes_visuals = [] 
+
         if resultats_det[0].boxes is not None and len(resultats_det[0].boxes) > 0:
             caixes_detectades = resultats_det[0].boxes.xyxy.cpu().numpy().tolist()
-            
-            # 2. Iterem cada caixa independentment
+            centroides_deteccions_actuals = []
+
             for box in caixes_detectades:
                 x1, y1, x2, y2 = map(int, box)
-                marge = 40
+                marge = 60 
                 box_ampliada = [max(0, x1-marge), max(0, y1-marge), min(img.shape[1], x2+marge), min(img.shape[0], y2+marge)]
                 
-                # 3. Segmentació (Només aquesta caixa concreta)
                 resultats_sam = segmentador.predict(img, bboxes=box_ampliada, verbose=False)
                 
                 if resultats_sam[0].masks is not None and len(resultats_sam[0].masks.xy) > 0:
-                    contorn_sam = resultats_sam[0].masks.xy[0]
-                    contorn_np = np.array(contorn_sam, dtype=np.int32)
-                    
-                    # 4. Càlcul del Centroide (Centre de gravetat de la màscara)
+                    contorn_np = np.array(resultats_sam[0].masks.xy[0], dtype=np.int32)
                     moments = cv2.moments(contorn_np)
                     if moments["m00"] != 0:
                         cx = int(moments["m10"] / moments["m00"])
                         cy = int(moments["m01"] / moments["m00"])
                     else:
                         cx, cy = int((x1+x2)/2), int((y1+y2)/2)
+                    
+                    centroides_deteccions_actuals.append((cx, cy))
+                    info_caixes_visuals.append({'contorn': contorn_np})
+
+            ids_assignats_finals = tracking_robust_amb_memoria(centroides_deteccions_actuals, distancia_actual_lidar)
+            
+            for i, caixa_seg in enumerate(info_caixes_visuals):
+                cx_seg, cy_seg = centroides_deteccions_actuals[i]
+                contorn_np = caixa_seg['contorn']
+                
+                for id_info in ids_assignats_finals:
+                    cx_id, cy_id = id_info['centroide']
+                    if math.hypot(cx_seg - cx_id, cy_seg - cy_id) < 5: 
+                        id_caixa = id_info['id']
+                        color = id_info['color']
                         
-                    # 5. Tracking: Recuperem l'ID i el color
-                    id_caixa = assignar_id_per_centroide(cx, cy, distancia_actual_lidar)
-                    color = obtenir_color(id_caixa)
-                    
-                    # 6. Visualització
-                    # 6.1 Pintem la màscara semitransparent amb el color de l'ID
-                    mascara_binaria = np.zeros((img.shape[0], img.shape[1]), dtype=np.uint8)
-                    cv2.fillPoly(mascara_binaria, [contorn_np], 255)
-                    
-                    color_capa = np.zeros_like(img)
-                    color_capa[:] = color
-                    mescla = cv2.addWeighted(img_resultat, 0.6, color_capa, 0.4, 0)
-                    img_resultat[mascara_binaria == 255] = mescla[mascara_binaria == 255]
-                    
-                    # 6.2 Resseguim el contorn
-                    cv2.drawContours(img_resultat, [contorn_np], -1, color, 3)
-                    
-                    # 6.3 Marquem el centroide
-                    cv2.circle(img_resultat, (cx, cy), 8, (255, 255, 255), -1)
-                    cv2.circle(img_resultat, (cx, cy), 4, color, -1)
-                    
-                    # 6.4 Etiqueta de text estilitzada
-                    text_id = f"ID_CAIXA_{id_caixa}"
-                    cv2.putText(img_resultat, text_id, (cx - 60, cy - 20), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 0), 4) # Ombra negra
-                    cv2.putText(img_resultat, text_id, (cx - 60, cy - 20), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2) # Text blanc
-                    
-        # Guardem la foto processada
-        ruta_guardat = os.path.join(CARPETA_RESULTATS, nom_arxiu)
-        cv2.imwrite(ruta_guardat, img_resultat)
+                        mascara_binaria = np.zeros((img.shape[0], img.shape[1]), dtype=np.uint8)
+                        cv2.fillPoly(mascara_binaria, [contorn_np], 255)
+                        color_capa = np.zeros_like(img)
+                        color_capa[:] = color
+                        mescla = cv2.addWeighted(img_resultat, 0.6, color_capa, 0.4, 0)
+                        img_resultat[mascara_binaria == 255] = mescla[mascara_binaria == 255]
+                        
+                        cv2.drawContours(img_resultat, [contorn_np], -1, color, 3)
+                        cv2.circle(img_resultat, (cx_seg, cy_seg), 8, color, -1)
+                        
+                        text_id = f"ID_CAIXA_{id_caixa}"
+                        cv2.putText(img_resultat, text_id, (cx_seg - 60, cy_seg - 20), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+                        break 
+
+        cv2.imwrite(os.path.join(CARPETA_RESULTATS, nom_arxiu), img_resultat)
         
-    print(f"\n[OK] Bloc2 completat")
+    print(f"\n[OK] Seqüència processada. Revisa la carpeta '{CARPETA_RESULTATS}'.")
 
 if __name__ == "__main__":
     processar_sequencia()
