@@ -8,55 +8,52 @@ from ultralytics import YOLO, SAM
 # ==========================================
 IMATGE_PROVA = "../fotos_caixa/IMG_0944.jpg" 
 
-print("Carregant models d'Intel·ligència Artificial...")
-detector = YOLO("yolov8s-world.pt")
-detector.set_classes(["box"]) 
-segmentador = SAM("mobile_sam.pt") 
-# ==========================================
-
 # FUNCIÓ: Lògica Pura d'Intersecció de Línies
 def calcular_interseccio(line1, line2):
     vx1, vy1, x1, y1 = line1[0][0], line1[1][0], line1[2][0], line1[3][0]
     vx2, vy2, x2, y2 = line2[0][0], line2[1][0], line2[2][0], line2[3][0]
 
-    # Producte creuat per veure si són paral·leles
     cross = vx1 * vy2 - vy1 * vx2
     if abs(cross) < 1e-6:
         return None 
 
-    # Càlcul del punt de xoc
     t1 = ((x2 - x1) * vy2 - (y2 - y1) * vx2) / cross
     inter_x = x1 + t1 * vx1
     inter_y = y1 + t1 * vy1
     return (int(inter_x), int(inter_y))
 
-def detectar_qualsevol_caixa(ruta_imatge, mostrar_visualment=True):
-    print(f"\n--- BLOC 1: SAM + INTERSECCIÓ DE RECTES (Silenciós) ---")
-    img = cv2.imread(ruta_imatge)
-    if img is None:
-        print("Error: No trobo la imatge.")
-        return None
-
-    img_sam_visual = img.copy() 
+def detectar_qualsevol_caixa(ruta_o_img, mostrar_visualment=False, bbox_objectiu=None, segmentador=None, detector=None):
+    # Gestió de si rebem una ruta (text) o una imatge (matriu directament del BLOC 0)
+    if isinstance(ruta_o_img, str):
+        img = cv2.imread(ruta_o_img)
+        nom_arxiu_guardar = os.path.basename(ruta_o_img)
+    else:
+        img = ruta_o_img
+        nom_arxiu_guardar = "caixa_processada.jpg"
+        
     img_resultat = img.copy()
+    img_sam_visual = img.copy() # <--- AQUESTA ÉS LA LÍNIA QUE FALTAVA!
 
-    # PAS 1: DETECCIÓ AMB YOLO
-    print("1. YOLO-World: Localitzant la capsa...")
-    resultats_det = detector.predict(img, conf=0.05, verbose=False)
-    
-    if resultats_det[0].boxes is None or len(resultats_det[0].boxes) == 0:
-        return None
+    # --- CONNEXIÓ AMB BLOC 0 ---
+    if bbox_objectiu is not None:
+        box_ampliada = bbox_objectiu
+    else:
+        if detector is None:
+            detector = YOLO("yolov8s-world.pt")
+            detector.set_classes(["box"]) 
+        resultats_det = detector.predict(img, conf=0.1, verbose=False)
+        if resultats_det[0].boxes is None or len(resultats_det[0].boxes) == 0:
+            return None
+        box = resultats_det[0].boxes.xyxy[0].cpu().numpy()
+        x1, y1, x2, y2 = map(int, box)
+        marge = 40
+        box_ampliada = [max(0, x1-marge), max(0, y1-marge), min(img.shape[1], x2+marge), min(img.shape[0], y2+marge)]
 
-    box_yolo = resultats_det[0].boxes.xyxy[0].cpu().numpy().tolist()
-    x1, y1, x2, y2 = map(int, box_yolo)
-    
-    marge = 40
-    box_ampliada = [max(0, x1-marge), max(0, y1-marge), min(img.shape[1], x2+marge), min(img.shape[0], y2+marge)]
-
-    # PAS 2: SAM
-    print("2. SAM: Extraient la silueta...")
+    if segmentador is None:
+        segmentador = SAM("mobile_sam.pt") 
+        
     resultats_sam = segmentador.predict(img, bboxes=box_ampliada, verbose=False)
-    
+        
     if resultats_sam[0].masks is None or len(resultats_sam[0].masks.xy) == 0:
         return None
 
@@ -95,7 +92,7 @@ def detectar_qualsevol_caixa(ruta_imatge, mostrar_visualment=True):
     coordenades_brutes = [(int(p[0][0]), int(p[0][1])) for p in vertexs_bruts]
 
     # PAS 4: RECONSTRUCCIÓ MATEMÀTICA (ESMOLANT LES CANTONADES)
-    print("3. Matemàtiques: Esmolant cantonades per intersecció de línies...")
+    # print("3. Matemàtiques: Esmolant cantonades per intersecció de línies...") # Comentat per no embrutar la consola del BLOC 0
     
     vora_mascara = np.zeros_like(mascara_binaria)
     cv2.drawContours(vora_mascara, [contorn_principal], -1, 255, 1)
@@ -138,55 +135,42 @@ def detectar_qualsevol_caixa(ruta_imatge, mostrar_visualment=True):
         else:
             coordenades_esmolades.append(coordenades_brutes[i]) 
 
-    print(f"ÈXIT! Cantonades refetes.")
-
-    # PAS 5: PINTAR I GUARDAR (SENSE FINESTRES EMERGENTS)
+    # PAS 5: PINTAR I GUARDAR
     if mostrar_visualment:
-        
-        # --- 5.1 DIBUIXAR LÍNIES TARONJA SOBRE EL SAM (img_sam_visual) ---
         n_vertices = len(coordenades_esmolades)
-        extend_dist = 100 # Fem la línia prou llarga perquè es vegi bé
+        extend_dist = 100 
         
         for i in range(n_vertices):
             inter_x, inter_y = coordenades_esmolades[i]
 
-            # Dibuixar extensió Recta Anterior sobre SAM
             recta_anterior = rectes_matematiques[(i - 1) % n_vertices]
             vx_pre, vy_pre = recta_anterior[0][0], recta_anterior[1][0]
             p_start1 = (int(inter_x - extend_dist * vx_pre), int(inter_y - extend_dist * vy_pre))
             p_end1 = (int(inter_x + extend_dist * vx_pre), int(inter_y + extend_dist * vy_pre))
-            cv2.line(img_sam_visual, p_start1, p_end1, (0, 165, 255), 2) # Línia taronja
+            cv2.line(img_sam_visual, p_start1, p_end1, (0, 165, 255), 2) 
 
-            # Dibuixar extensió Recta Actual sobre SAM
             recta_actual = rectes_matematiques[i]
             vx_curr, vy_curr = recta_actual[0][0], recta_actual[1][0]
             p_start2 = (int(inter_x - extend_dist * vx_curr), int(inter_y - extend_dist * vy_curr))
             p_end2 = (int(inter_x + extend_dist * vx_curr), int(inter_y + extend_dist * vy_curr))
-            cv2.line(img_sam_visual, p_start2, p_end2, (0, 165, 255), 2) # Línia taronja
+            cv2.line(img_sam_visual, p_start2, p_end2, (0, 165, 255), 2) 
             
-            # (Opcional) Dibuixar el punt d'intersecció en vermell també al SAM perquè quedi clar on xoquen
             cv2.circle(img_sam_visual, (inter_x, inter_y), 5, (0, 0, 255), -1)
 
-        # --- 5.2 DIBUIXAR RESULTAT FINAL NET SOBRE BLOC1 (img_resultat) ---
         vertexs_dibuix = np.array(coordenades_esmolades, dtype=np.int32).reshape((-1, 1, 2))
-        cv2.drawContours(img_resultat, [vertexs_dibuix], -1, (0, 255, 0), 3) # Verd gruixut
+        cv2.drawContours(img_resultat, [vertexs_dibuix], -1, (0, 255, 0), 3) 
         
         for i, (x, y) in enumerate(coordenades_esmolades):
             cv2.circle(img_resultat, (x, y), 8, (0, 0, 255), -1)
             cv2.putText(img_resultat, f"P{i+1}", (x+15, y-10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
 
-        nom_arxiu = os.path.basename(ruta_imatge)
-        
-        # --- 5.3 GUARDAR ---
         os.makedirs("resultats_SAM", exist_ok=True)
-        cv2.imwrite(os.path.join("resultats_SAM", nom_arxiu), img_sam_visual)
-        print(f"-> Guardat a resultats_SAM/{nom_arxiu}")
+        cv2.imwrite(os.path.join("resultats_SAM", nom_arxiu_guardar), img_sam_visual)
 
         os.makedirs("Resultats_BLOC1", exist_ok=True)
-        cv2.imwrite(os.path.join("Resultats_BLOC1", nom_arxiu), img_resultat)
-        print(f"-> Guardat a Resultats_BLOC1/{nom_arxiu}")
+        cv2.imwrite(os.path.join("Resultats_BLOC1", nom_arxiu_guardar), img_resultat)
 
     return coordenades_esmolades
 
 if __name__ == "__main__":
-    punts = detectar_qualsevol_caixa(IMATGE_PROVA)
+    punts = detectar_qualsevol_caixa(IMATGE_PROVA, mostrar_visualment=True)
