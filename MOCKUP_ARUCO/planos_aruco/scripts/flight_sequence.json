@@ -1,0 +1,198 @@
+[
+  {
+    "shelf": "E1",
+    "marker_id": 1,
+    "position": [0.0, 0.0, 1.5],
+    "action": "take_photo",
+    "description": "Detectar E1 (ID 1), tomar foto y enviar posición GPS + orientación"
+  },
+  {
+    "shelf": "E2",
+    "marker_id": 2,
+    "position": [0.5, 0.0, 1.5],
+    "action": "take_photo",
+    "description": "Detectar E2 (ID 2), tomar foto y enviar posición GPS + orientación"
+  },
+  {
+    "shelf": "E3",
+    "marker_id": 3,
+    "position": [1.0, 0.0, 1.5],
+    "action": "take_photo",
+    "description": "Detectar E3 (ID 3), tomar foto y enviar posición GPS + orientación"
+  },
+  {
+    "shelf": "E4",
+    "marker_id": 4,
+    "position": [1.5, 0.0, 1.5],
+    "action": "take_photo",
+    "description": "Detectar E4 (ID 4), tomar foto y enviar posición GPS + orientación"
+  },
+  {
+    "shelf": "E5",
+    "marker_id": 5,
+    "position": [2.0, 0.0, 1.5],
+    "action": "take_photo",
+    "description": "Detectar E5 (ID 5), tomar foto y enviar posición GPS + orientación"
+  },
+  {
+    "shelf": "E6",
+    "marker_id": 6,
+    "position": [2.5, 0.0, 1.5],
+    "action": "take_photo",
+    "description": "Detectar E6 (ID 6), tomar foto y enviar posición GPS + orientación"
+  },
+  {
+    "shelf": "E7",
+    "marker_id": 7,
+    "position": [3.0, 0.0, 1.5],
+    "action": "take_photo",
+    "description": "Detectar E7 (ID 7), tomar foto y enviar posición GPS + orientación"
+  },
+  {
+    "shelf": "E8",
+    "marker_id": 8,
+    "position": [3.5, 0.0, 1.5],
+    "action": "take_photo",
+    "description": "Detectar E8 (ID 8), tomar foto y enviar posición GPS + orientación"
+  },
+  {
+    "shelf": "E9",
+    "marker_id": 9,
+    "position": [4.0, 0.0, 1.5],
+    "action": "take_photo",
+    "description": "Detectar E9 (ID 9), tomar foto y enviar posición GPS + orientación"
+  },
+  {
+    "shelf": "E10",
+    "marker_id": 10,
+    "position": [4.5, 0.0, 1.5],
+    "action": "take_photo",
+    "description": "Detectar E10 (ID 10), tomar foto y enviar posición GPS + orientación"
+  },
+  {
+    "shelf": "E11",
+    "marker_id": 11,
+    "position": [5.0, 0.0, 1.5],
+    "action": "take_photo",
+    "description": "Detectar E11 (ID 11), tomar foto y enviar posición GPS + orientación"
+  },
+  {
+    "shelf": "E12",
+    "marker_id": 12,
+    "position": [5.5, 0.0, 1.5],
+    "action": "take_photo",
+    "description": "Detectar E12 (ID 12), tomar foto y enviar posición GPS + orientación"
+  },
+  {
+    "shelf": "E13",
+    "marker_id": 13,
+    "position": [6.0, 0.0, 1.5],
+    "action": "take_photo",
+    "description": "Detectar E13 (ID 13), tomar foto y enviar posición GPS + orientación"
+  },
+  {
+    "shelf": "E14",
+    "marker_id": 14,
+    "position": [6.5, 0.0, 1.5],
+    "action": "take_photo",
+    "description": "Detectar E14 (ID 14), tomar foto y enviar posición GPS + orientación"
+  },
+  {
+    "shelf": "E15",
+    "marker_id": 15,
+    "position": [7.0, 0.0, 1.5],
+    "action": "take_photo",
+    "description": "Detectar E15 (ID 15), tomar foto y enviar posición GPS + orientación"
+  },
+  {
+    "shelf": "E16",
+    "marker_id": 16,
+    "position": [7.5, 0.0, 1.5],
+    "action": "take_photo",
+    "description": "Detectar E16 (ID 16), tomar foto y enviar posición GPS + orientación"
+  },
+  {
+    "shelf": "E17",
+    "marker_id": 17,
+    "position": [8.0, 0.0, 1.5],
+    "action": "take_photo",
+    "description": "Detectar E17 (ID 17), tomar foto y enviar posición GPS + orientación"
+  },
+  {
+    "shelf": "E18",
+    "marker_id": 18,
+    "position": [8.5, 0.0, 1.5],
+    "action": "take_photo",
+    "description": "Detectar E18 (ID 18), tomar foto y enviar posición GPS + orientación"
+  },
+  {
+    "shelf": "E19",
+    "marker_id": 19,
+    "position": [9.0, 0.0, 1.5],
+    "action": "take_photo",
+    "description": "Detectar E19 (ID 19), tomar foto y enviar posición GPS + orientación"
+  },
+  {
+    "shelf": "E20",
+    "marker_id": 20,
+    "position": [9.5, 0.0, 1.5],
+    "action": "take_photo",
+    "description": "Detectar E20 (ID 20), tomar foto y enviar posición GPS + orientación"
+  },
+  {
+    "shelf": "E21",
+    "marker_id": 21,
+    "position": [10.0, 0.0, 1.5],
+    "action": "take_photo",
+    "description": "Detectar E21 (ID 21), tomar foto y enviar posición GPS + orientación"
+  },
+  {
+    "shelf": "E22",
+    "marker_id": 22,
+    "position": [10.5, 0.0, 1.5],
+    "action": "take_photo",
+    "description": "Detectar E22 (ID 22), tomar foto y enviar posición GPS + orientación"
+  },
+  {
+    "shelf": "E23",
+    "marker_id": 23,
+    "position": [11.0, 0.0, 1.5],
+    "action": "take_photo",
+    "description": "Detectar E23 (ID 23), tomar foto y enviar posición GPS + orientación"
+  },
+  {
+    "shelf": "E24",
+    "marker_id": 24,
+    "position": [11.5, 0.0, 1.5],
+    "action": "take_photo",
+    "description": "Detectar E24 (ID 24), tomar foto y enviar posición GPS + orientación"
+  },
+  {
+    "shelf": "E25",
+    "marker_id": 25,
+    "position": [12.0, 0.0, 1.5],
+    "action": "take_photo",
+    "description": "Detectar E25 (ID 25), tomar foto y enviar posición GPS + orientación"
+  },
+  {
+    "shelf": "E26",
+    "marker_id": 26,
+    "position": [12.5, 0.0, 1.5],
+    "action": "take_photo",
+    "description": "Detectar E26 (ID 26), tomar foto y enviar posición GPS + orientación"
+  },
+  {
+    "shelf": "E27",
+    "marker_id": 27,
+    "position": [13.0, 0.0, 1.5],
+    "action": "take_photo",
+    "description": "Detectar E27 (ID 27), tomar foto y enviar posición GPS + orientación"
+  },
+  {
+    "shelf": "E28",
+    "marker_id": 28,
+    "position": [13.5, 0.0, 1.5],
+    "action": "take_photo",
+    "description": "Detectar E28 (ID 28), tomar foto y enviar posición GPS + orientación"
+  }
+]
