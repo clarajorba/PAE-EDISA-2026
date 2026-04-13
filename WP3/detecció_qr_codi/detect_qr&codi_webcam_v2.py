@@ -16,7 +16,8 @@ FONT_VIDEO = 0
 
 DEBUG = False
 PROCESSAR_CADA_N_FRAMES = 3     # Processa 1 de cada 3 frames
-ESCALA_DETECCIO = 0.5           # Redueix la mida per detectar més ràpid
+ESCALA_DETECCIO_RAPIDA = 0.75   # Redueix poc la mida per no perdre detalls dels codis 1D
+ESCALA_DETECCIO_FINE = 1.0      # Fallback a resolució completa per CODE128/EAN/GS1
 TITOL_FINESTRA = "Gestio d'Inventari Drons"
 
 COOLDOWN_TANCAMENT = 4.0
@@ -185,37 +186,28 @@ def construir_deteccio(codi, escala):
     }
 
 
-def detectar_codis_mixtos(frame):
-    """
-    Detecció optimitzada:
-    1) Redueix mida
-    2) Prova només en grayscale
-    3) Si no troba res, prova amb Otsu
-    4) Elimina duplicats
-    """
-    if ESCALA_DETECCIO != 1.0:
-        frame_small = cv2.resize(frame, (0, 0), fx=ESCALA_DETECCIO, fy=ESCALA_DETECCIO)
-    else:
-        frame_small = frame
+def preparar_imatges_deteccio(gray, incloure_otsu=False, incloure_adaptativa=False):
+    imatges = [gray, cv2.equalizeHist(gray)]
 
-    gray = cv2.cvtColor(frame_small, cv2.COLOR_BGR2GRAY)
-
-    # 1a passada: grayscale
-    deteccions_raw = decode(gray)
-
-    # 2a passada: Otsu només si no hem trobat res
-    if not deteccions_raw:
+    if incloure_otsu:
         blur = cv2.GaussianBlur(gray, (3, 3), 0)
-        thresh_otsu = cv2.threshold(
-            blur, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU
-        )[1]
-        deteccions_raw = decode(thresh_otsu)
+        imatges.append(
+            cv2.threshold(blur, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1]
+        )
 
-    deteccions_final = []
-    vistos = set()
+    if incloure_adaptativa:
+        imatges.append(
+            cv2.adaptiveThreshold(
+                gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 31, 7
+            )
+        )
 
+    return imatges
+
+
+def afegir_deteccions(deteccions_raw, escala, deteccions_final, vistos):
     for codi in deteccions_raw:
-        det = construir_deteccio(codi, ESCALA_DETECCIO)
+        det = construir_deteccio(codi, escala)
         if det is None:
             continue
 
@@ -233,6 +225,57 @@ def detectar_codis_mixtos(frame):
 
         vistos.add(clau)
         deteccions_final.append(det)
+
+
+def conte_tipus(deteccions, tipus_objectiu):
+    if not tipus_objectiu:
+        return bool(deteccions)
+
+    return any(det["tipus"] in tipus_objectiu for det in deteccions)
+
+
+def preparar_gray(frame, escala):
+    if escala != 1.0:
+        interpolacio = cv2.INTER_AREA if escala < 1.0 else cv2.INTER_LINEAR
+        frame = cv2.resize(frame, (0, 0), fx=escala, fy=escala, interpolation=interpolacio)
+
+    return cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+
+
+def detectar_codis_mixtos(frame, tipus_prioritaris=None):
+    """
+    Detecció optimitzada amb dues fases:
+    1) Passada ràpida a escala lleugerament reduïda
+    2) Si no apareix el tipus rellevant, fallback a resolució completa
+       amb preprocessats més agressius per recuperar CODE128/EAN/GS1.
+    """
+    tipus_prioritaris = set(tipus_prioritaris or [])
+    deteccions_final = []
+    vistos = set()
+
+    gray_rapid = preparar_gray(frame, ESCALA_DETECCIO_RAPIDA)
+    for img in preparar_imatges_deteccio(gray_rapid):
+        afegir_deteccions(
+            decode(img), ESCALA_DETECCIO_RAPIDA, deteccions_final, vistos
+        )
+        if conte_tipus(deteccions_final, tipus_prioritaris):
+            return deteccions_final
+
+    gray_fine = preparar_gray(frame, ESCALA_DETECCIO_FINE)
+    reutilitzem_mateixa_escala = abs(ESCALA_DETECCIO_FINE - ESCALA_DETECCIO_RAPIDA) < 1e-6
+    imatges_fine = preparar_imatges_deteccio(
+        gray_fine, incloure_otsu=True, incloure_adaptativa=True
+    )
+
+    if reutilitzem_mateixa_escala:
+        imatges_fine = imatges_fine[2:]
+
+    for img in imatges_fine:
+        afegir_deteccions(
+            decode(img), ESCALA_DETECCIO_FINE, deteccions_final, vistos
+        )
+        if conte_tipus(deteccions_final, tipus_prioritaris):
+            break
 
     return deteccions_final
 
@@ -268,7 +311,11 @@ def processar_frame_inventari(frame, estat_inventari):
     - estanteries (CODE39 del manifest)
     - caixes (CODE128 SSCC)
     """
-    codis_detectats = detectar_codis_mixtos(frame)
+    tipus_prioritaris = {"CODE39"}
+    if estat_inventari['estanteria_actual'] is not None:
+        tipus_prioritaris = {"CODE128"}
+
+    codis_detectats = detectar_codis_mixtos(frame, tipus_prioritaris=tipus_prioritaris)
     temps_actual = time.time()
 
     for det in codis_detectats:
