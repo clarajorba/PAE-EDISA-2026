@@ -32,7 +32,7 @@ def detectar_qualsevol_caixa(ruta_o_img, mostrar_visualment=False, bbox_objectiu
         nom_arxiu_guardar = "caixa_processada.jpg"
         
     img_resultat = img.copy()
-    img_sam_visual = img.copy() # <--- AQUESTA ÉS LA LÍNIA QUE FALTAVA!
+    img_sam_visual = img.copy() 
 
     # --- CONNEXIÓ AMB BLOC 0 ---
     if bbox_objectiu is not None:
@@ -92,8 +92,6 @@ def detectar_qualsevol_caixa(ruta_o_img, mostrar_visualment=False, bbox_objectiu
     coordenades_brutes = [(int(p[0][0]), int(p[0][1])) for p in vertexs_bruts]
 
     # PAS 4: RECONSTRUCCIÓ MATEMÀTICA (ESMOLANT LES CANTONADES)
-    # print("3. Matemàtiques: Esmolant cantonades per intersecció de línies...") # Comentat per no embrutar la consola del BLOC 0
-    
     vora_mascara = np.zeros_like(mascara_binaria)
     cv2.drawContours(vora_mascara, [contorn_principal], -1, 255, 1)
 
@@ -134,6 +132,20 @@ def detectar_qualsevol_caixa(ruta_o_img, mostrar_visualment=False, bbox_objectiu
             coordenades_esmolades.append(interseccio)
         else:
             coordenades_esmolades.append(coordenades_brutes[i]) 
+
+    # =================================================================
+    # NOU FILTRE DE QUALITAT DEL FOTOGRAMA
+    # =================================================================
+    TOLERANCIA_MASCARA_PX = 25 
+    
+    for (x, y) in coordenades_esmolades:
+        # cv2.pointPolygonTest retorna distància negativa si el punt està fora del contorn
+        distancia = cv2.pointPolygonTest(contorn_principal, (float(x), float(y)), True)
+        if distancia < -TOLERANCIA_MASCARA_PX:
+            # Si tan sols UNA esquina s'allunya massa, considerem la geometria corrupta
+            # i descartem la caixa en AQUEST fotograma concret.
+            return None
+    # =================================================================
 
     # PAS 5: PINTAR I GUARDAR
     if mostrar_visualment:

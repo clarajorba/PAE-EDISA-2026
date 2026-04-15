@@ -12,7 +12,7 @@ from pyzbar.pyzbar import decode
 
 # FONT_VIDEO = "tcp://172.20.10.3:8888"
 # Si vols provar la webcam local del PC:
-FONT_VIDEO = 0
+FONT_VIDEO = "tcp://172.20.10.3:8888"
 
 DEBUG = False
 PROCESSAR_CADA_N_FRAMES = 3     # Processa 1 de cada 3 frames
