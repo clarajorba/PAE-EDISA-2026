@@ -533,6 +533,7 @@ def grabar_posiciones(cap, duracion_s):
     frames_tot = frames_det = 0
     t0    = time.monotonic()
     t_rec = None
+    tiempos_cap, tiempos_det, tiempos_pnp, tiempos_render = [], [], [], []
 
     win = "Medicion Estatica PC"
     cv2.namedWindow(win, cv2.WINDOW_NORMAL)
@@ -550,20 +551,25 @@ def grabar_posiciones(cap, duracion_s):
         if t_rec and elapsed >= duracion_s:
             break
 
+        t_frame0 = time.monotonic()
+
         ok, frame = cap.read()
         if not ok:
             break
         frames_tot += 1
+        t_cap = time.monotonic()
 
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         corners_det, ids_det, _ = detector.detectMarkers(gray)
+        t_det = time.monotonic()
+
         pos_raw, n_mk, rerr = estimar_posicion(corners_det, ids_det)
+        t_pnp = time.monotonic()
 
         if ids_det is not None:
             cv2.aruco.drawDetectedMarkers(frame, corners_det, ids_det)
         if pos_raw is not None:
             frames_det += 1
-
 
         pos_kal = None
         if not en_warmup and pos_raw is not None:
@@ -586,8 +592,26 @@ def grabar_posiciones(cap, duracion_s):
 
         # Composición del frame
         cam_resized = cv2.resize(frame, (CAM_W, CAM_H))
+        t_render0 = time.monotonic()
         panel = dash.render(elapsed, en_warmup, et, len(muestras_raw), n_rej,
                             n_mk, rerr, pos_raw, pos_kal, frames_tot, frames_det)
+        t_render = time.monotonic()
+
+        # Tiempos por etapa (ms)
+        ms_cap    = (t_cap    - t_frame0) * 1000
+        ms_det    = (t_det    - t_cap)    * 1000
+        ms_pnp    = (t_pnp    - t_det)    * 1000
+        ms_render = (t_render - t_render0)* 1000
+        ms_total  = (t_render - t_frame0) * 1000
+        tiempos_cap.append(ms_cap)
+        tiempos_det.append(ms_det)
+        tiempos_pnp.append(ms_pnp)
+        tiempos_render.append(ms_render)
+        cv2.putText(cam_resized,
+                    f"cap:{ms_cap:.0f} det:{ms_det:.0f} pnp:{ms_pnp:.0f} "
+                    f"render:{ms_render:.0f} | total:{ms_total:.0f}ms",
+                    (8, CAM_H - 10), cv2.FONT_HERSHEY_SIMPLEX,
+                    0.38, (0, 255, 180), 1, cv2.LINE_AA)
         composite = np.hstack([cam_resized, panel])
 
         cv2.imshow(win, composite)
@@ -599,6 +623,15 @@ def grabar_posiciones(cap, duracion_s):
     rej_r = 100.0 * n_rej / max(len(muestras_raw) + n_rej, 1)
     print(f"  Fin: {len(muestras_raw)} muestras | Det {det_r:.1f}% | "
           f"Rechazadas {n_rej} ({rej_r:.1f}%)")
+    if tiempos_cap:
+        import statistics
+        tc = statistics.mean(tiempos_cap)
+        td = statistics.mean(tiempos_det)
+        tp = statistics.mean(tiempos_pnp)
+        tr = statistics.mean(tiempos_render)
+        tt = tc + td + tp + tr
+        print(f"\n  Tiempo medio por frame: {tt:.1f} ms  ({1000/tt:.1f} Hz teórico)")
+        print(f"    cap={tc:.1f}ms  detección={td:.1f}ms  pnp={tp:.1f}ms  render={tr:.1f}ms")
     return muestras_raw, muestras_kal, n_rej, det_r
 
 
