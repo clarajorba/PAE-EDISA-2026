@@ -34,11 +34,11 @@ from groundingdino.util.inference import load_model, load_image, predict, annota
 CONFIG_PATH  = "groundingdino/config/GroundingDINO_SwinT_OGC.py"
 WEIGHTS_PATH = "weights/groundingdino_swint_ogc.pth"
 FOTOS_DIR    = "mis_imagenes/"
-IMAGE_NAME   = "20260218_131608.jpg"   
-#IMAGE_NAME   = "20260218_131604.jpg"
-IMAGE_NAME   = "Imagenpegada.png"
+#IMAGE_NAME   = "20260218_131608.jpg"   
+IMAGE_NAME   = "20260218_131604.jpg"
+#IMAGE_NAME   = "Imagenpegada.png"
 OUTPUT_BASE  = "comparacion_resultados/"
- 
+
 TEXT_PROMPT  = "cardboard box . box . carton . stacked cardboard box . warehouse package . pallet ."
  
 BOX_THRESHOLD         = 0.19
@@ -52,9 +52,9 @@ MIN_BOX_SIZE          = 0.04
 MAX_BOX_ASPECT_RATIO  = 2.2
  
 # DETECCIÓN DE VIGAS NARANJAS (HSV + PROYECCIÓN)
-BEAM_HSV_LOW          = np.array([8, 150, 120])    # Naranja bajo
-BEAM_HSV_HIGH         = np.array([18, 255, 255])   # Naranja alto
-BEAM_PALLET_MARGIN_PX = 80     # Píxeles a descartar ENCIMA de viga inferior (zona pallet)
+# Rango ajustado para naranja saturado, excluyendo marrones de pallets
+BEAM_HSV_LOW          = np.array([8, 150, 120])    # Naranja saturado (excluye marrón)
+BEAM_HSV_HIGH         = np.array([18, 255, 255])   # Naranja puro (excluye amarillo)
  
 PALLET_KEYWORDS       = {"pallet"}
 PALLET_MIN_ASPECT_RATIO = 2.5
@@ -144,55 +144,104 @@ def detect_orange_beams(image_bgr):
     return beams, mask, projection
  
  
-def get_valid_zone(beams, img_height):
+# Proporción de zona pallet respecto al espacio entre vigas (o altura de nivel)
+BEAM_PALLET_RATIO = 0.12  # 12% del espacio es zona pallet (ajustar entre 0.10-0.15)
+ 
+def get_valid_zones(beams, img_height):
     """
-    Dadas las vigas detectadas, retorna (y_min, y_max) de la zona válida.
-    - y_min = borde inferior de la viga superior
-    - y_max = borde superior de la viga inferior - margen pallet
+    Dadas las vigas detectadas, retorna lista de zonas válidas (y_min, y_max).
     
-    Si no hay 2 vigas, retorna None (no filtrar).
+    Estructura por nivel (de arriba a abajo en la imagen):
+        [VIGA SUPERIOR]  ← y_min = borde inferior de esta viga
+        [CAJAS]          ← zona válida
+        [PALLETS]        ← descartar (BEAM_PALLET_RATIO del espacio)
+        [VIGA INFERIOR]  ← y_max = borde superior de esta viga - margen pallet
+    
+    Casos:
+        - 0 vigas: retorna None (no filtrar)
+        - 1 viga: último piso, desde viga hacia arriba hasta top de imagen
+        - 2+ vigas: un nivel por cada par de vigas consecutivas
     """
-    if len(beams) < 2:
+    if len(beams) == 0:
         return None
     
-    # Tomar las 2 vigas más prominentes (más anchas) o las 2 primeras
-    # Por ahora tomamos las 2 con menor Y (más arriba y siguiente)
-    beam_top = beams[0]      # (y_top, y_bottom, x1, x2)
-    beam_bottom = beams[1]
+    zones = []
     
-    y_min = beam_top[1]      # Borde inferior de viga superior
-    y_max = beam_bottom[0] - BEAM_PALLET_MARGIN_PX  # Borde superior de viga inferior - margen
+    if len(beams) == 1:
+        # Último piso: desde la viga hacia arriba (sin límite superior)
+        beam = beams[0]  # (y_top, y_bottom, x1, x2)
+        beam_top = beam[0]
+        
+        # Espacio desde top de imagen hasta la viga
+        level_height = beam_top
+        pallet_margin = int(level_height * BEAM_PALLET_RATIO)
+        
+        y_min = 0  # Top de imagen
+        y_max = beam_top - pallet_margin  # Viga - margen pallet
+        
+        if y_max > y_min:
+            zones.append((y_min, y_max))
     
-    # Asegurar que y_max > y_min
-    if y_max <= y_min:
-        return None
+    else:
+        # Múltiples vigas: un nivel por cada par consecutivo
+        for i in range(len(beams) - 1):
+            beam_upper = beams[i]      # Viga de arriba
+            beam_lower = beams[i + 1]  # Viga de abajo
+            
+            # Espacio entre vigas
+            y_upper = beam_upper[1]  # Borde inferior de viga superior
+            y_lower = beam_lower[0]  # Borde superior de viga inferior
+            
+            level_height = y_lower - y_upper
+            pallet_margin = int(level_height * BEAM_PALLET_RATIO)
+            
+            y_min = y_upper  # Justo debajo de viga superior
+            y_max = y_lower - pallet_margin  # Viga inferior - margen pallet
+            
+            if y_max > y_min:
+                zones.append((y_min, y_max))
+        
+        # Último piso (encima de la primera viga, si hay espacio)
+        first_beam = beams[0]
+        if first_beam[0] > 50:  # Si hay espacio significativo arriba
+            level_height = first_beam[0]
+            pallet_margin = int(level_height * BEAM_PALLET_RATIO)
+            
+            y_min = 0
+            y_max = first_beam[0] - pallet_margin
+            
+            if y_max > y_min:
+                zones.insert(0, (y_min, y_max))
     
-    return (y_min, y_max)
+    return zones if zones else None
  
  
-def apply_beam_zone_filter(boxes, logits, phrases, valid_zone, img_height):
+def apply_beam_zone_filter(boxes, logits, phrases, valid_zones, img_height):
     """
-    Filtra detecciones fuera de la zona válida entre vigas.
+    Filtra detecciones fuera de las zonas válidas entre vigas.
     boxes en formato normalizado (0-1).
+    Una detección se mantiene si su centro está en CUALQUIERA de las zonas válidas.
     """
-    if valid_zone is None or len(boxes) == 0:
+    if valid_zones is None or len(boxes) == 0:
         print("   Filtro beam zone     : sin vigas detectadas, no se aplica")
         return boxes, logits, phrases
     
-    y_min, y_max = valid_zone
-    # Normalizar a 0-1
-    y_min_norm = y_min / img_height
-    y_max_norm = y_max / img_height
-    
-    # Centro Y de cada caja
+    # Centro Y de cada caja (normalizado)
     cy = boxes[:, 1]
     
-    # Mantener solo cajas cuyo centro está en zona válida
-    keep = (cy >= y_min_norm) & (cy <= y_max_norm)
+    # Una caja se mantiene si está en alguna zona válida
+    keep = np.zeros(len(boxes), dtype=bool)
+    
+    for y_min, y_max in valid_zones:
+        y_min_norm = y_min / img_height
+        y_max_norm = y_max / img_height
+        keep |= (cy >= y_min_norm) & (cy <= y_max_norm)
     
     removed = (~keep).sum()
     if removed:
         print(f"   Filtro beam zone     : eliminadas {removed} detección(es) fuera de zona")
+    else:
+        print(f"   Filtro beam zone     : {len(valid_zones)} zona(s) válida(s), 0 eliminadas")
     
     kept_idx = np.where(keep)[0]
     return boxes[kept_idx], logits[kept_idx], [phrases[i] for i in kept_idx]
@@ -346,7 +395,7 @@ def apply_pallet_filter(boxes, logits, phrases, box_idx, pallet_idx,
 #  🖊️  OVERLAY + GUARDADO POR PASO
 # ============================================================
  
-def draw_params_overlay(image, n_final, valid_zone=None):
+def draw_params_overlay(image, n_final, valid_zones=None):
     lines = [
         f"BOX: {BOX_THRESHOLD}",
         f"TEXT: {TEXT_THRESHOLD}",
@@ -355,7 +404,7 @@ def draw_params_overlay(image, n_final, valid_zone=None):
         f"CENTER: {CENTER_DIST_THRESHOLD}",
         f"MIN_SIZE: {MIN_BOX_SIZE}",
         f"MAX_AR: {MAX_BOX_ASPECT_RATIO}",
-        f"PALLET_PX: {BEAM_PALLET_MARGIN_PX}",
+        f"PALLET_%: {BEAM_PALLET_RATIO*100:.0f}%",
     ]
     font, fs, th, pad = cv2.FONT_HERSHEY_SIMPLEX, 1.4, 3, 14
     line_h  = int(cv2.getTextSize("A", font, fs, th)[0][1] + pad * 2)
@@ -368,19 +417,19 @@ def draw_params_overlay(image, n_final, valid_zone=None):
         cv2.putText(image, line, (12, y), font, fs, (0, 0, 0), th + 3)
         cv2.putText(image, line, (10, y), font, fs, (255, 255, 255), th)
     
-    # Dibujar zona válida si existe
-    if valid_zone is not None:
-        y_min, y_max = valid_zone
+    # Dibujar zonas válidas si existen
+    if valid_zones is not None:
         h, w = image.shape[:2]
-        # Línea verde = límite superior válido
-        cv2.line(image, (0, y_min), (w, y_min), (0, 255, 0), 3)
-        # Línea roja = límite inferior válido (ya con margen pallet)
-        cv2.line(image, (0, y_max), (w, y_max), (0, 0, 255), 3)
+        for y_min, y_max in valid_zones:
+            # Línea verde = límite superior de zona válida
+            cv2.line(image, (0, y_min), (w, y_min), (0, 255, 0), 3)
+            # Línea roja = límite inferior de zona válida (ya sin pallets)
+            cv2.line(image, (0, y_max), (w, y_max), (0, 0, 255), 3)
     
     return image
  
  
-def _save_step(image_source, boxes, logits, phrases, stem, run_dir, step, label, valid_zone=None):
+def _save_step(image_source, boxes, logits, phrases, stem, run_dir, step, label, valid_zones=None):
     """Anota y guarda la imagen tras un paso del pipeline."""
     annotated = annotate(
         image_source=image_source,
@@ -388,7 +437,7 @@ def _save_step(image_source, boxes, logits, phrases, stem, run_dir, step, label,
         logits=torch.from_numpy(logits),
         phrases=phrases,
     )
-    annotated = draw_params_overlay(annotated, len(boxes), valid_zone)
+    annotated = draw_params_overlay(annotated, len(boxes), valid_zones)
     out_path  = run_dir / f"{stem}_{step}_{label}.jpg"
     cv2.imwrite(str(out_path), annotated)
     print(f"   💾 [{label}] {len(boxes)} detecc. → {out_path.name}")
@@ -479,9 +528,11 @@ def run_detection(model, image_paths, run_dir):
         beams, beam_mask, projection = detect_orange_beams(image_bgr)
         _save_beam_debug(image_bgr, beams, beam_mask, projection, img_path.stem, run_dir)
         
-        valid_zone = get_valid_zone(beams, img_height)
-        if valid_zone:
-            print(f"   Zona válida (px)     : Y={valid_zone[0]} a Y={valid_zone[1]}")
+        valid_zones = get_valid_zones(beams, img_height)
+        if valid_zones:
+            print(f"   Zonas válidas        : {len(valid_zones)} nivel(es)")
+            for i, (y_min, y_max) in enumerate(valid_zones):
+                print(f"      Nivel {i+1}: Y={y_min} a Y={y_max} ({y_max-y_min}px)")
         
         # Detección con GroundingDINO
         raw_boxes, raw_logits, raw_phrases = predict(
@@ -506,31 +557,31 @@ def run_detection(model, image_paths, run_dir):
         ph = [phrases[i] for i in box_idx]
  
         # 0 — sin filtros
-        _save_step(image_source, b, l, ph, img_path.stem, run_dir, 0, "0_sinfiltros", valid_zone)
+        _save_step(image_source, b, l, ph, img_path.stem, run_dir, 0, "0_sinfiltros", valid_zones)
  
         # 1 — beam zone (NUEVO)
-        b, l, ph = apply_beam_zone_filter(b, l, ph, valid_zone, img_height)
-        _save_step(image_source, b, l, ph, img_path.stem, run_dir, 1, "1_beamzone", valid_zone)
+        b, l, ph = apply_beam_zone_filter(b, l, ph, valid_zones, img_height)
+        _save_step(image_source, b, l, ph, img_path.stem, run_dir, 1, "1_beamzone", valid_zones)
  
         # 2 — min size
         b, l, ph = apply_min_size_filter(b, l, ph, MIN_BOX_SIZE)
-        _save_step(image_source, b, l, ph, img_path.stem, run_dir, 2, "2_minsize", valid_zone)
+        _save_step(image_source, b, l, ph, img_path.stem, run_dir, 2, "2_minsize", valid_zones)
  
         # 3 — aspect ratio
         b, l, ph = apply_aspect_ratio_filter(b, l, ph, MAX_BOX_ASPECT_RATIO)
-        _save_step(image_source, b, l, ph, img_path.stem, run_dir, 3, "3_aspectratio", valid_zone)
+        _save_step(image_source, b, l, ph, img_path.stem, run_dir, 3, "3_aspectratio", valid_zones)
  
         # 4 — containment
         b, l, ph = apply_containment_filter(b, l, ph, CONTAINMENT_THRESHOLD)
-        _save_step(image_source, b, l, ph, img_path.stem, run_dir, 4, "4_containment", valid_zone)
+        _save_step(image_source, b, l, ph, img_path.stem, run_dir, 4, "4_containment", valid_zones)
  
         # 5 — center distance
         b, l, ph = apply_center_distance_filter(b, l, ph, CENTER_DIST_THRESHOLD)
-        _save_step(image_source, b, l, ph, img_path.stem, run_dir, 5, "5_center", valid_zone)
+        _save_step(image_source, b, l, ph, img_path.stem, run_dir, 5, "5_center", valid_zones)
  
         # 6 — NMS
         b, l, ph = apply_nms(b, l, ph, IOU_THRESHOLD)
-        _save_step(image_source, b, l, ph, img_path.stem, run_dir, 6, "6_nms", valid_zone)
+        _save_step(image_source, b, l, ph, img_path.stem, run_dir, 6, "6_nms", valid_zones)
  
         # 7 — pallet
         all_b  = np.concatenate([b,  boxes[pallet_idx]], axis=0)
@@ -545,7 +596,7 @@ def run_detection(model, image_paths, run_dir):
         b  = b[kept_box_idx]
         l  = l[kept_box_idx]
         ph = [ph[i] for i in kept_box_idx]
-        _save_step(image_source, b, l, ph, img_path.stem, run_dir, 7, "7_pallet", valid_zone)
+        _save_step(image_source, b, l, ph, img_path.stem, run_dir, 7, "7_pallet", valid_zones)
  
         n_final = len(b)
         print(f"   Detecciones finales  : {n_final}")
@@ -580,7 +631,7 @@ def print_summary(results, run_dir):
     print(f"  BOX={BOX_THRESHOLD} | TEXT={TEXT_THRESHOLD} | "
           f"IOU={IOU_THRESHOLD} | CONT={CONTAINMENT_THRESHOLD}")
     print(f"  MIN_SIZE={MIN_BOX_SIZE} | MAX_AR={MAX_BOX_ASPECT_RATIO}")
-    print(f"  BEAM_PALLET_MARGIN={BEAM_PALLET_MARGIN_PX}px")
+    print(f"  PALLET_RATIO={BEAM_PALLET_RATIO*100:.0f}%")
     print("=" * 60)
  
  
