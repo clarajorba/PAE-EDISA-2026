@@ -23,7 +23,7 @@ def calcular_interseccio(line1, line2):
     return (int(inter_x), int(inter_y))
 
 def detectar_qualsevol_caixa(ruta_o_img, mostrar_visualment=False, bbox_objectiu=None, segmentador=None, detector=None):
-    # Gestió de si rebem una ruta (text) o una imatge (matriu directament del BLOC 0)
+    # 1. Gestió d'entrada
     if isinstance(ruta_o_img, str):
         img = cv2.imread(ruta_o_img)
         nom_arxiu_guardar = os.path.basename(ruta_o_img)
@@ -31,10 +31,11 @@ def detectar_qualsevol_caixa(ruta_o_img, mostrar_visualment=False, bbox_objectiu
         img = ruta_o_img
         nom_arxiu_guardar = "caixa_processada.jpg"
         
+    if img is None: return None
     img_resultat = img.copy()
-    img_sam_visual = img.copy() # <--- AQUESTA ÉS LA LÍNIA QUE FALTAVA!
+    img_sam_visual = img.copy() 
 
-    # --- CONNEXIÓ AMB BLOC 0 ---
+    # 2. Detecció i Segmentació
     if bbox_objectiu is not None:
         box_ampliada = bbox_objectiu
     else:
@@ -42,8 +43,7 @@ def detectar_qualsevol_caixa(ruta_o_img, mostrar_visualment=False, bbox_objectiu
             detector = YOLO("yolov8s-world.pt")
             detector.set_classes(["box"]) 
         resultats_det = detector.predict(img, conf=0.1, verbose=False)
-        if resultats_det[0].boxes is None or len(resultats_det[0].boxes) == 0:
-            return None
+        if not resultats_det[0].boxes: return None
         box = resultats_det[0].boxes.xyxy[0].cpu().numpy()
         x1, y1, x2, y2 = map(int, box)
         marge = 40
@@ -53,28 +53,20 @@ def detectar_qualsevol_caixa(ruta_o_img, mostrar_visualment=False, bbox_objectiu
         segmentador = SAM("mobile_sam.pt") 
         
     resultats_sam = segmentador.predict(img, bboxes=box_ampliada, verbose=False)
-        
-    if resultats_sam[0].masks is None or len(resultats_sam[0].masks.xy) == 0:
-        return None
+    if not resultats_sam[0].masks: return None
 
     contorn_sam = resultats_sam[0].masks.xy[0] 
     mascara_binaria = np.zeros((img.shape[0], img.shape[1]), dtype=np.uint8)
     cv2.fillPoly(mascara_binaria, [np.array(contorn_sam, dtype=np.int32)], 255)
 
+    # Millora de màscara
     kernel = np.ones((20, 20), np.uint8)
     mascara_binaria = cv2.morphologyEx(mascara_binaria, cv2.MORPH_CLOSE, kernel)
     mascara_binaria = cv2.dilate(mascara_binaria, kernel, iterations=1)
 
-    # Visualització SAM (Blau)
-    color_blau_sam = np.zeros_like(img)
-    color_blau_sam[:] = (255, 144, 30)
-    mescla = cv2.addWeighted(img_sam_visual, 0.5, color_blau_sam, 0.5, 0)
-    img_sam_visual[mascara_binaria == 255] = mescla[mascara_binaria == 255]
-
-    # PAS 3: OBTENCIÓ DELS VÈRTEXS ARRODONITS (BRUTS)
+    # 3. Obtenció de vèrtexs bruts
     contorns, _ = cv2.findContours(mascara_binaria, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     if not contorns: return None
-        
     contorn_principal = max(contorns, key=cv2.contourArea)
     hull = cv2.convexHull(contorn_principal)
     perimetre = cv2.arcLength(hull, True)
@@ -91,86 +83,86 @@ def detectar_qualsevol_caixa(ruta_o_img, mostrar_visualment=False, bbox_objectiu
     vertexs_bruts = vertexs_ideals if vertexs_ideals is not None else cv2.approxPolyDP(hull, 0.04 * perimetre, True)
     coordenades_brutes = [(int(p[0][0]), int(p[0][1])) for p in vertexs_bruts]
 
-    # PAS 4: RECONSTRUCCIÓ MATEMÀTICA (ESMOLANT LES CANTONADES)
-    # print("3. Matemàtiques: Esmolant cantonades per intersecció de línies...") # Comentat per no embrutar la consola del BLOC 0
-    
+    # 4. Reconstrucció matemàtica (Esmolat)
     vora_mascara = np.zeros_like(mascara_binaria)
     cv2.drawContours(vora_mascara, [contorn_principal], -1, 255, 1)
 
     rectes_matematiques = []
     n = len(coordenades_brutes)
-    
     for i in range(n):
-        p1 = np.array(coordenades_brutes[i])
-        p2 = np.array(coordenades_brutes[(i + 1) % n])
+        p1, p2 = np.array(coordenades_brutes[i]), np.array(coordenades_brutes[(i + 1) % n])
         direccio = p2 - p1
-        
-        p_inici = p1 + direccio * 0.20
-        p_fi = p1 + direccio * 0.80
-        
+        p_inici, p_fi = p1 + direccio * 0.20, p1 + direccio * 0.80
         mascara_linia = np.zeros_like(mascara_binaria)
         cv2.line(mascara_linia, (int(p_inici[0]), int(p_inici[1])), (int(p_fi[0]), int(p_fi[1])), 255, 15)
-                                
         punts_vora = cv2.bitwise_and(vora_mascara, mascara_linia)
         coords_y, coords_x = np.where(punts_vora == 255)
         
         if len(coords_x) > 10:
-            punts_fit = np.column_stack((coords_x, coords_y))
-            recta = cv2.fitLine(punts_fit, cv2.DIST_L2, 0, 0.01, 0.01)
+            recta = cv2.fitLine(np.column_stack((coords_x, coords_y)), cv2.DIST_L2, 0, 0.01, 0.01)
             rectes_matematiques.append(recta)
         else:
             norma = np.linalg.norm(direccio) + 1e-6
-            vx, vy = direccio[0]/norma, direccio[1]/norma
-            rectes_matematiques.append([np.array([vx]), np.array([vy]), np.array([p1[0]]), np.array([p1[1]])])
+            rectes_matematiques.append([np.array([direccio[0]/norma]), np.array([direccio[1]/norma]), np.array([p1[0]]), np.array([p1[1]])])
 
     coordenades_esmolades = []
     for i in range(n):
-        recta_anterior = rectes_matematiques[(i - 1) % n]
-        recta_actual = rectes_matematiques[i]
-        
-        interseccio = calcular_interseccio(recta_anterior, recta_actual)
-        
-        if interseccio is not None and 0 <= interseccio[0] <= img.shape[1]*2 and 0 <= interseccio[1] <= img.shape[0]*2:
-            coordenades_esmolades.append(interseccio)
-        else:
-            coordenades_esmolades.append(coordenades_brutes[i]) 
+        inter = calcular_interseccio(rectes_matematiques[(i - 1) % n], rectes_matematiques[i])
+        coordenades_esmolades.append(inter if inter else coordenades_brutes[i])
 
-    # PAS 5: PINTAR I GUARDAR
+    # =================================================================
+    # FILTRE DE QUALITAT I IDENTIFICACIÓ DE PUNTS BLAUS
+    # =================================================================
+    TOLERANCIA_MASCARA_PX = 25 
+    indexs_corruptes = []
+    
+    for i, (x, y) in enumerate(coordenades_esmolades):
+        distancia = cv2.pointPolygonTest(contorn_principal, (float(x), float(y)), True)
+        if distancia < -TOLERANCIA_MASCARA_PX:
+            indexs_corruptes.append(i)
+    
+    fotograma_valid = (len(indexs_corruptes) == 0)
+    # =================================================================
+
+    # 5. Pintar i Guardar (S'executa sempre si mostrar_visualment és True)
     if mostrar_visualment:
-        n_vertices = len(coordenades_esmolades)
-        extend_dist = 100 
-        
-        for i in range(n_vertices):
-            inter_x, inter_y = coordenades_esmolades[i]
+        # Mescla blava per al SAM
+        color_blau_sam = np.zeros_like(img)
+        color_blau_sam[:] = (255, 144, 30)
+        mescla = cv2.addWeighted(img_sam_visual, 0.5, color_blau_sam, 0.5, 0)
+        img_sam_visual[mascara_binaria == 255] = mescla[mascara_binaria == 255]
 
-            recta_anterior = rectes_matematiques[(i - 1) % n_vertices]
-            vx_pre, vy_pre = recta_anterior[0][0], recta_anterior[1][0]
-            p_start1 = (int(inter_x - extend_dist * vx_pre), int(inter_y - extend_dist * vy_pre))
-            p_end1 = (int(inter_x + extend_dist * vx_pre), int(inter_y + extend_dist * vy_pre))
-            cv2.line(img_sam_visual, p_start1, p_end1, (0, 165, 255), 2) 
-
-            recta_actual = rectes_matematiques[i]
-            vx_curr, vy_curr = recta_actual[0][0], recta_actual[1][0]
-            p_start2 = (int(inter_x - extend_dist * vx_curr), int(inter_y - extend_dist * vy_curr))
-            p_end2 = (int(inter_x + extend_dist * vx_curr), int(inter_y + extend_dist * vy_curr))
-            cv2.line(img_sam_visual, p_start2, p_end2, (0, 165, 255), 2) 
+        # Dibuixar vèrtexs i línies
+        for i, (x, y) in enumerate(coordenades_esmolades):
+            # Color del punt: Blau si és corruptre, Roig si és correcte
+            color_punt = (255, 0, 0) if i in indexs_corruptes else (0, 0, 255)
             
-            cv2.circle(img_sam_visual, (inter_x, inter_y), 5, (0, 0, 255), -1)
+            # Dibuixar creu de línies taronja (prolongacions)
+            recta_ant = rectes_matematiques[(i - 1) % n]; recta_act = rectes_matematiques[i]
+            for r in [recta_ant, recta_act]:
+                vx, vy = r[0][0], r[1][0]
+                p1 = (int(x - 100 * vx), int(y - 100 * vy))
+                p2 = (int(x + 100 * vx), int(y + 100 * vy))
+                cv2.line(img_sam_visual, p1, p2, (0, 165, 255), 2)
+            
+            # Cercle final
+            cv2.circle(img_resultat, (x, y), 8, color_punt, -1)
+            cv2.circle(img_sam_visual, (x, y), 5, color_punt, -1)
+            cv2.putText(img_resultat, f"P{i+1}", (x+15, y-10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
 
+        # Polígon verd
         vertexs_dibuix = np.array(coordenades_esmolades, dtype=np.int32).reshape((-1, 1, 2))
         cv2.drawContours(img_resultat, [vertexs_dibuix], -1, (0, 255, 0), 3) 
-        
-        for i, (x, y) in enumerate(coordenades_esmolades):
-            cv2.circle(img_resultat, (x, y), 8, (0, 0, 255), -1)
-            cv2.putText(img_resultat, f"P{i+1}", (x+15, y-10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
 
         os.makedirs("resultats_SAM", exist_ok=True)
         cv2.imwrite(os.path.join("resultats_SAM", nom_arxiu_guardar), img_sam_visual)
-
         os.makedirs("Resultats_BLOC1", exist_ok=True)
         cv2.imwrite(os.path.join("Resultats_BLOC1", nom_arxiu_guardar), img_resultat)
 
-    return coordenades_esmolades
+    # RETORNAR: Si hi ha punts corruptes, retornem None per invalidar el volum
+    return coordenades_esmolades if fotograma_valid else None
 
 if __name__ == "__main__":
     punts = detectar_qualsevol_caixa(IMATGE_PROVA, mostrar_visualment=True)
+    if punts: print(f"Vèrtexs vàlids: {punts}")
+    else: print("Fotograma descartat (Punts blaus detectats).")
