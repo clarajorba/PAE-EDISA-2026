@@ -1,17 +1,29 @@
 """
-detector_video_almacen.py
-=========================
-GroundingDINO + filtros en cascada para detección de cajas en VIDEO de almacén.
+detector_realtime_almacen_v2.py
+===============================
+GroundingDINO + SAM + filtros en cascada para detección de cajas en TIEMPO REAL.
+Captura desde stream RTSP/HTTP de Raspberry Pi.
 
-Procesa 1 de cada N fotogramas y guarda solo el resultado final anotado.
-Basado en prueba_detector_almacen.py (versión imágenes).
+Controles:
+  - 'q' : Salir
+  - 's' : Guardar frame actual manualmente
+  - 'p' : Pausar/Reanudar
+  - '+' : Aumentar frame skip
+  - '-' : Reducir frame skip
 """
 
 import cv2
 import torch
 import numpy as np
 from pathlib import Path
-from groundingdino.util.inference import load_model, load_image, predict, annotate
+from datetime import datetime
+from threading import Thread, Lock
+import time
+
+from groundingdino.util.inference import load_model, predict
+
+# Importamos las funcionalidades de SAM del primer código
+from segmentador_contornos import cargar_segmentador, segmentar_cajas
 
 # ============================================================
 #  ⚙️  PARÁMETROS
@@ -20,33 +32,40 @@ from groundingdino.util.inference import load_model, load_image, predict, annota
 CONFIG_PATH  = "groundingdino/config/GroundingDINO_SwinT_OGC.py"
 WEIGHTS_PATH = "weights/groundingdino_swint_ogc.pth"
 
-# VIDEO INPUT/OUTPUT
-VIDEO_PATH   = "mis_videos/video_almacen.mp4"   # Ruta al video de entrada
-OUTPUT_BASE  = "resultados_video/"               # Carpeta de salida
-FRAME_SKIP   = 3                                 # Procesar 1 de cada N frames
+# STREAM INPUT - Ajusta según tu configuración de Raspberry Pi
+STREAM_URL = "http://192.168.1.100:8080/video"
 
-TEXT_PROMPT  = "cardboard box . box . carton . stacked cardboard box . warehouse package . pallet ."
+# OUTPUT
+OUTPUT_BASE = "capturas_realtime/"
+SAVE_ON_DETECTION = True
+
+# RENDIMIENTO (CPU)
+PROCESS_WIDTH = 800        
+FRAME_SKIP = 3             
+DISPLAY_SCALE = 1.0        
+
+# ACTIVAR/DESACTIVAR SAM EN TIEMPO REAL
+# (Recomendado en False para streams, a menos que tengas GPU potente)
+ENABLE_SAM_REALTIME = False 
+
+TEXT_PROMPT = "cardboard box . box . carton . stacked cardboard box . warehouse package . pallet ."
 
 BOX_THRESHOLD         = 0.19
 TEXT_THRESHOLD        = 0.3
 IOU_THRESHOLD         = 0.7
-CONTAINMENT_THRESHOLD = 0.3
+CONTAINMENT_THRESHOLD = 0.5   
 CENTER_DIST_THRESHOLD = 0.05
 
 # FILTROS DE TAMAÑO Y FORMA
-MIN_BOX_SIZE          = 0.04
+MIN_BOX_SIZE          = 0.06  
 MAX_BOX_ASPECT_RATIO  = 2.2
 
-# DETECCIÓN DE VIGAS NARANJAS (HSV + PROYECCIÓN)
+# DETECCIÓN DE VIGAS NARANJAS
 BEAM_HSV_LOW          = np.array([8, 150, 120])
 BEAM_HSV_HIGH         = np.array([18, 255, 255])
-
-# Umbral: una fila debe tener al menos este % del ancho con píxeles naranjas
-BEAM_ROW_THRESHOLD = 0.25
-# Altura mínima de viga (en píxeles) para evitar ruido
-BEAM_MIN_HEIGHT_PX = 10
-# Proporción de zona pallet respecto al espacio entre vigas
-BEAM_PALLET_RATIO = 0.12
+BEAM_ROW_THRESHOLD    = 0.25
+BEAM_MIN_HEIGHT_PX    = 10
+BEAM_PALLET_RATIO     = 0.18  
 
 PALLET_KEYWORDS       = {"pallet"}
 PALLET_MIN_ASPECT_RATIO = 2.5
@@ -59,13 +78,10 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 # ============================================================
 
 def _to_corners_batch(boxes: np.ndarray) -> np.ndarray:
-    """(N,4) cx cy w h  →  (N,4) x1 y1 x2 y2"""
     cx, cy, w, h = boxes[:, 0], boxes[:, 1], boxes[:, 2], boxes[:, 3]
     return np.stack([cx - w/2, cy - h/2, cx + w/2, cy + h/2], axis=1)
 
-
 def _iou_matrix(corners: np.ndarray) -> np.ndarray:
-    """Matriz IoU (N×N) a partir de corners (N,4)."""
     x1 = np.maximum(corners[:, None, 0], corners[None, :, 0])
     y1 = np.maximum(corners[:, None, 1], corners[None, :, 1])
     x2 = np.minimum(corners[:, None, 2], corners[None, :, 2])
@@ -77,19 +93,13 @@ def _iou_matrix(corners: np.ndarray) -> np.ndarray:
 
 
 # ============================================================
-#  🟧  DETECCIÓN DE VIGAS NARANJAS (PROYECCIÓN HORIZONTAL)
+#  🟧  DETECCIÓN DE VIGAS NARANJAS
 # ============================================================
 
 def detect_orange_beams(image_bgr):
-    """
-    Detecta vigas naranjas por proyección horizontal.
-    Retorna lista de (y_top, y_bottom, 0, w) en píxeles, ordenadas por y_top.
-    """
     h, w = image_bgr.shape[:2]
-    
     hsv = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2HSV)
     mask = cv2.inRange(hsv, BEAM_HSV_LOW, BEAM_HSV_HIGH)
-    
     projection = np.sum(mask > 0, axis=1)
     threshold_px = w * BEAM_ROW_THRESHOLD
     is_beam_row = projection >= threshold_px
@@ -104,135 +114,85 @@ def detect_orange_beams(image_bgr):
             y_start = y
         elif not is_beam_row[y] and in_beam:
             in_beam = False
-            beam_height = y - y_start
-            if beam_height >= BEAM_MIN_HEIGHT_PX:
+            if y - y_start >= BEAM_MIN_HEIGHT_PX:
                 beams.append((y_start, y, 0, w))
     
-    if in_beam:
-        beam_height = h - y_start
-        if beam_height >= BEAM_MIN_HEIGHT_PX:
-            beams.append((y_start, h, 0, w))
+    if in_beam and h - y_start >= BEAM_MIN_HEIGHT_PX:
+        beams.append((y_start, h, 0, w))
     
     return beams
 
-
 def get_valid_zones(beams, img_height):
-    """
-    Retorna lista de zonas válidas (y_min, y_max) basadas en las vigas detectadas.
-    """
     if len(beams) == 0:
         return None
-    
     zones = []
-    
     if len(beams) == 1:
-        beam = beams[0]
-        beam_top = beam[0]
-        level_height = beam_top
-        pallet_margin = int(level_height * BEAM_PALLET_RATIO)
-        
-        y_min = 0
-        y_max = beam_top - pallet_margin
-        
+        beam_top = beams[0][0]
+        pallet_margin = int(beam_top * BEAM_PALLET_RATIO)
+        y_min, y_max = 0, beam_top - pallet_margin
         if y_max > y_min:
             zones.append((y_min, y_max))
-    
     else:
         for i in range(len(beams) - 1):
-            beam_upper = beams[i]
-            beam_lower = beams[i + 1]
-            
-            y_upper = beam_upper[1]
-            y_lower = beam_lower[0]
-            
+            y_upper = beams[i][1]
+            y_lower = beams[i + 1][0]
             level_height = y_lower - y_upper
             pallet_margin = int(level_height * BEAM_PALLET_RATIO)
-            
-            y_min = y_upper
-            y_max = y_lower - pallet_margin
-            
+            y_min, y_max = y_upper, y_lower - pallet_margin
             if y_max > y_min:
                 zones.append((y_min, y_max))
-        
-        first_beam = beams[0]
-        if first_beam[0] > 50:
-            level_height = first_beam[0]
-            pallet_margin = int(level_height * BEAM_PALLET_RATIO)
-            
-            y_min = 0
-            y_max = first_beam[0] - pallet_margin
-            
+        if beams[0][0] > 50:
+            pallet_margin = int(beams[0][0] * BEAM_PALLET_RATIO)
+            y_min, y_max = 0, beams[0][0] - pallet_margin
             if y_max > y_min:
                 zones.insert(0, (y_min, y_max))
-    
     return zones if zones else None
 
 
 # ============================================================
-#  🗂️  SEPARACIÓN CAJAS / PALLETS
+#  🗂️  FILTROS ACTUALIZADOS (Desde código 1)
 # ============================================================
 
 def split_boxes_pallets(boxes, logits, phrases):
-    pallet_mask = np.array([
-        any(kw in p.lower() for kw in PALLET_KEYWORDS)
-        for p in phrases
-    ])
+    pallet_mask = np.array([any(kw in p.lower() for kw in PALLET_KEYWORDS) for p in phrases])
     return np.where(~pallet_mask)[0], np.where(pallet_mask)[0]
 
-
-# ============================================================
-#  🔍  FILTROS
-# ============================================================
-
 def apply_beam_zone_filter(boxes, logits, phrases, valid_zones, img_height):
-    """Filtra detecciones fuera de las zonas válidas entre vigas."""
     if valid_zones is None or len(boxes) == 0:
         return boxes, logits, phrases
-    
     cy = boxes[:, 1]
     keep = np.zeros(len(boxes), dtype=bool)
-    
     for y_min, y_max in valid_zones:
-        y_min_norm = y_min / img_height
-        y_max_norm = y_max / img_height
+        y_min_norm, y_max_norm = y_min / img_height, y_max / img_height
         keep |= (cy >= y_min_norm) & (cy <= y_max_norm)
-    
     kept_idx = np.where(keep)[0]
     return boxes[kept_idx], logits[kept_idx], [phrases[i] for i in kept_idx]
 
-
 def apply_min_size_filter(boxes, logits, phrases, min_size):
-    """Elimina detecciones cuyo ancho O alto sea menor que min_size."""
-    if len(boxes) == 0 or min_size == 0.0:
-        return boxes, logits, phrases
+    if len(boxes) == 0: return boxes, logits, phrases
     w, h = boxes[:, 2], boxes[:, 3]
     keep = (w >= min_size) & (h >= min_size)
     kept_idx = np.where(keep)[0]
     return boxes[kept_idx], logits[kept_idx], [phrases[i] for i in kept_idx]
 
-
 def apply_aspect_ratio_filter(boxes, logits, phrases, max_ratio):
-    """Elimina detecciones con aspect ratio > max_ratio."""
-    if len(boxes) == 0 or max_ratio == 0.0:
-        return boxes, logits, phrases
+    if len(boxes) == 0: return boxes, logits, phrases
     w, h = boxes[:, 2], boxes[:, 3]
     aspect = np.maximum(w, h) / np.clip(np.minimum(w, h), 1e-6, None)
     keep = aspect <= max_ratio
     kept_idx = np.where(keep)[0]
     return boxes[kept_idx], logits[kept_idx], [phrases[i] for i in kept_idx]
 
-
 def apply_containment_filter(boxes, logits, phrases, threshold):
-    if len(boxes) == 0 or threshold == 0.0:
-        return boxes, logits, phrases
+    if len(boxes) == 0: return boxes, logits, phrases
     corners = _to_corners_batch(boxes)
-    areas   = (corners[:, 2] - corners[:, 0]) * (corners[:, 3] - corners[:, 1])
+    areas = (corners[:, 2] - corners[:, 0]) * (corners[:, 3] - corners[:, 1])
     x1 = np.maximum(corners[:, None, 0], corners[None, :, 0])
     y1 = np.maximum(corners[:, None, 1], corners[None, :, 1])
     x2 = np.minimum(corners[:, None, 2], corners[None, :, 2])
     y2 = np.minimum(corners[:, None, 3], corners[None, :, 3])
     inter = np.maximum(0, x2 - x1) * np.maximum(0, y2 - y1)
-    cont  = np.where(areas[:, None] > 0, inter / areas[:, None], 0.0)
+    cont = np.where(areas[:, None] > 0, inter / areas[:, None], 0.0)
     is_group = np.zeros(len(boxes), dtype=bool)
     for j in range(len(boxes)):
         smaller = areas < areas[j]
@@ -241,53 +201,43 @@ def apply_containment_filter(boxes, logits, phrases, threshold):
     kept_idx = np.where(~is_group)[0]
     return boxes[kept_idx], logits[kept_idx], [phrases[i] for i in kept_idx]
 
-
 def apply_center_distance_filter(boxes, logits, phrases, dist_threshold):
-    if len(boxes) == 0 or dist_threshold == 0.0:
-        return boxes, logits, phrases
-    order  = np.argsort(logits)[::-1]
+    if len(boxes) == 0: return boxes, logits, phrases
+    order = np.argsort(logits)[::-1]
     active = np.ones(len(boxes), dtype=bool)
-    kept   = []
+    kept = []
     for idx in order:
-        if not active[idx]:
-            continue
+        if not active[idx]: continue
         kept.append(idx)
         active_idx = np.where(active)[0]
-        dists = np.sqrt(
-            (boxes[active_idx, 0] - boxes[idx, 0]) ** 2 +
-            (boxes[active_idx, 1] - boxes[idx, 1]) ** 2
-        )
+        dists = np.sqrt((boxes[active_idx, 0] - boxes[idx, 0])**2 + 
+                        (boxes[active_idx, 1] - boxes[idx, 1])**2)
         too_close = active_idx[dists < dist_threshold]
-        too_close = too_close[too_close != idx]
-        active[too_close] = False
+        active[too_close[too_close != idx]] = False
     kept_idx = sorted(kept)
     return boxes[kept_idx], logits[kept_idx], [phrases[i] for i in kept_idx]
 
-
 def apply_nms(boxes, logits, phrases, iou_threshold):
-    if len(boxes) == 0:
-        return boxes, logits, phrases
+    if len(boxes) == 0: return boxes, logits, phrases
     corners = _to_corners_batch(boxes)
-    iou     = _iou_matrix(corners)
-    order   = np.argsort(logits)[::-1]
-    kept    = []
+    iou = _iou_matrix(corners)
+    order = np.argsort(logits)[::-1]
+    kept = []
     while len(order) > 0:
-        best  = order[0]
+        best = order[0]
         kept.append(best)
-        rest  = order[1:]
+        rest = order[1:]
         order = rest[iou[best, rest] < iou_threshold]
     kept_idx = sorted(kept)
     return boxes[kept_idx], logits[kept_idx], [phrases[i] for i in kept_idx]
 
-
-def apply_pallet_filter(boxes, logits, phrases, box_idx, pallet_idx,
-                        containment_threshold=0.5):
+def apply_pallet_filter(boxes, logits, phrases, box_idx, pallet_idx, containment_threshold=0.5):
+    """Actualizado: detecta correctamente pallets vacíos y ocupados."""
     if len(pallet_idx) == 0:
         return box_idx, pallet_idx
 
-    pw = boxes[pallet_idx, 2]
-    ph = boxes[pallet_idx, 3]
-    aspect       = np.maximum(pw, ph) / np.clip(np.minimum(pw, ph), 1e-6, None)
+    pw, ph = boxes[pallet_idx, 2], boxes[pallet_idx, 3]
+    aspect = np.maximum(pw, ph) / np.clip(np.minimum(pw, ph), 1e-6, None)
     empty_pallet = aspect >= PALLET_MIN_ASPECT_RATIO
 
     surviving = pallet_idx[~empty_pallet]
@@ -301,43 +251,127 @@ def apply_pallet_filter(boxes, logits, phrases, box_idx, pallet_idx,
     y1 = np.maximum(bc[:, None, 1], pc[None, :, 1])
     x2 = np.minimum(bc[:, None, 2], pc[None, :, 2])
     y2 = np.minimum(bc[:, None, 3], pc[None, :, 3])
-    inter     = np.maximum(0, x2 - x1) * np.maximum(0, y2 - y1)
+    inter = np.maximum(0, x2 - x1) * np.maximum(0, y2 - y1)
     areas_box = (bc[:, 2] - bc[:, 0]) * (bc[:, 3] - bc[:, 1])
-    cont      = np.where(areas_box[:, None] > 0, inter / areas_box[:, None], 0.0)
-
+    cont = np.where(areas_box[:, None] > 0, inter / areas_box[:, None], 0.0)
     has_boxes = np.any(cont >= containment_threshold, axis=0)
 
     return box_idx, surviving[~has_boxes]
 
 
 # ============================================================
-#  🖊️  OVERLAY
+#  🎬  CAPTURA DE STREAM
 # ============================================================
 
-def draw_params_overlay(image, frame_num, n_detections, valid_zones=None):
-    """Dibuja parámetros y zonas válidas sobre la imagen."""
-    lines = [
-        f"FRAME: {frame_num}",
-        f"CAJAS: {n_detections}",
-        f"BOX: {BOX_THRESHOLD}",
-        f"MIN_SIZE: {MIN_BOX_SIZE}",
-        f"MAX_AR: {MAX_BOX_ASPECT_RATIO}",
-        f"PALLET_%: {BEAM_PALLET_RATIO*100:.0f}%",
-    ]
-    font, fs, th, pad = cv2.FONT_HERSHEY_SIMPLEX, 1.2, 2, 10
-    line_h  = int(cv2.getTextSize("A", font, fs, th)[0][1] + pad * 2)
-    block_h = line_h * len(lines) + pad
-    overlay = image.copy()
-    cv2.rectangle(overlay, (0, 0), (350, block_h), (0, 0, 0), -1)
-    cv2.addWeighted(overlay, 0.55, image, 0.45, 0, image)
-    for i, line in enumerate(lines):
-        y = pad + line_h * i + line_h - pad
-        cv2.putText(image, line, (12, y), font, fs, (0, 0, 0), th + 2)
-        cv2.putText(image, line, (10, y), font, fs, (255, 255, 255), th)
+class StreamCapture:
+    def __init__(self, url):
+        self.url = url
+        self.cap = None
+        self.frame = None
+        self.lock = Lock()
+        self.running = False
+        self.connected = False
+        
+    def start(self):
+        self.running = True
+        self.thread = Thread(target=self._capture_loop, daemon=True)
+        self.thread.start()
+        
+        timeout = 10
+        start = time.time()
+        while not self.connected and time.time() - start < timeout:
+            time.sleep(0.1)
+        
+        return self.connected
     
-    # Dibujar zonas válidas
-    if valid_zones is not None:
-        h, w = image.shape[:2]
+    def _capture_loop(self):
+        while self.running:
+            if self.cap is None or not self.cap.isOpened():
+                print(f"📡 Conectando a {self.url}...")
+                self.cap = cv2.VideoCapture(self.url)
+                self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1) 
+                
+                if self.cap.isOpened():
+                    self.connected = True
+                    print("✅ Conectado al stream")
+                else:
+                    time.sleep(2)
+                    continue
+            
+            ret, frame = self.cap.read()
+            if ret:
+                with self.lock:
+                    self.frame = frame
+            else:
+                self.connected = False
+                self.cap.release()
+                self.cap = None
+                time.sleep(1)
+    
+    def read(self):
+        with self.lock:
+            return self.frame.copy() if self.frame is not None else None
+    
+    def stop(self):
+        self.running = False
+        if self.cap:
+            self.cap.release()
+
+
+# ============================================================
+#  🖊️  VISUALIZACIÓN
+# ============================================================
+
+def draw_detections(image, boxes, logits, phrases, img_height, img_width, contornos=None):
+    """Dibuja bounding boxes y contornos de SAM si existen."""
+    # Dibujar contornos primero para que queden bajo las cajas
+    if contornos:
+        for item in contornos:
+            pts = np.array(item['poligono_simple'], np.int32)
+            pts = pts.reshape((-1, 1, 2))
+            cv2.polylines(image, [pts], isClosed=True, color=(255, 0, 255), thickness=2)
+            
+            # (Opcional) Rellenar semitransparente
+            overlay = image.copy()
+            cv2.fillPoly(overlay, [pts], (255, 0, 255))
+            cv2.addWeighted(overlay, 0.3, image, 0.7, 0, image)
+
+    # Dibujar Bounding Boxes
+    for box, score, phrase in zip(boxes, logits, phrases):
+        cx, cy, bw, bh = box
+        x1 = int((cx - bw/2) * img_width)
+        y1 = int((cy - bh/2) * img_height)
+        x2 = int((cx + bw/2) * img_width)
+        y2 = int((cy + bh/2) * img_height)
+        
+        color = (0, int(255 * score), int(255 * (1 - score)))
+        cv2.rectangle(image, (x1, y1), (x2, y2), color, 3)
+        
+        label = f"{phrase[:12]} {score:.2f}"
+        (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 2)
+        cv2.rectangle(image, (x1, y1 - th - 6), (x1 + tw + 4, y1), color, -1)
+        cv2.putText(image, label, (x1 + 2, y1 - 4), 
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
+    
+    return image
+
+
+def draw_overlay(image, fps, n_detections, frame_skip, paused, valid_zones=None):
+    h, w = image.shape[:2]
+    status = "PAUSADO" if paused else "EN VIVO"
+    lines = [
+        f"{status} | FPS: {fps:.1f}",
+        f"Cajas: {n_detections} | Skip: {frame_skip} | SAM: {'ON' if ENABLE_SAM_REALTIME else 'OFF'}",
+        "[Q]Salir [S]Guardar [P]Pausa [+/-]Skip",
+    ]
+    
+    font, fs, th = cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2
+    for i, line in enumerate(lines):
+        y = 30 + i * 30
+        cv2.putText(image, line, (12, y), font, fs, (0, 0, 0), th + 2)
+        cv2.putText(image, line, (10, y), font, fs, (0, 255, 255), th)
+    
+    if valid_zones:
         for y_min, y_max in valid_zones:
             cv2.line(image, (0, y_min), (w, y_min), (0, 255, 0), 2)
             cv2.line(image, (0, y_max), (w, y_max), (0, 0, 255), 2)
@@ -345,83 +379,65 @@ def draw_params_overlay(image, frame_num, n_detections, valid_zones=None):
     return image
 
 
-def draw_detections(image_bgr, boxes, logits, phrases):
-    """Dibuja bounding boxes sobre la imagen BGR."""
-    h, w = image_bgr.shape[:2]
-    
-    for i, (box, score, phrase) in enumerate(zip(boxes, logits, phrases)):
-        cx, cy, bw, bh = box
-        x1 = int((cx - bw/2) * w)
-        y1 = int((cy - bh/2) * h)
-        x2 = int((cx + bw/2) * w)
-        y2 = int((cy + bh/2) * h)
-        
-        # Color según score
-        color = (0, int(255 * score), int(255 * (1 - score)))
-        
-        cv2.rectangle(image_bgr, (x1, y1), (x2, y2), color, 3)
-        
-        label = f"{phrase[:15]} {score:.2f}"
-        (tw, th_text), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)
-        cv2.rectangle(image_bgr, (x1, y1 - th_text - 8), (x1 + tw + 4, y1), color, -1)
-        cv2.putText(image_bgr, label, (x1 + 2, y1 - 4), 
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
-    
-    return image_bgr
-
-
 # ============================================================
-#  🎬  PROCESAMIENTO DE VIDEO
+#  🔍  PROCESAMIENTO UNIFICADO
 # ============================================================
 
-def process_frame(model, frame_bgr, frame_num, img_height, img_width):
-    """Procesa un frame y retorna las detecciones filtradas."""
+def process_frame(model, sam_model, frame_bgr):
+    h, w = frame_bgr.shape[:2]
     
-    # Detectar vigas naranjas
-    beams = detect_orange_beams(frame_bgr)
-    valid_zones = get_valid_zones(beams, img_height)
+    if PROCESS_WIDTH and w > PROCESS_WIDTH:
+        scale = PROCESS_WIDTH / w
+        proc_frame = cv2.resize(frame_bgr, None, fx=scale, fy=scale)
+    else:
+        proc_frame = frame_bgr
+        scale = 1.0
     
-    # Preparar imagen para GroundingDINO (RGB normalizado)
-    frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+    proc_h, proc_w = proc_frame.shape[:2]
+    
+    beams = detect_orange_beams(proc_frame)
+    valid_zones = get_valid_zones(beams, proc_h)
+    
+    if valid_zones and scale != 1.0:
+        valid_zones = [(int(y1/scale), int(y2/scale)) for y1, y2 in valid_zones]
+    
+    frame_rgb = cv2.cvtColor(proc_frame, cv2.COLOR_BGR2RGB)
     image = torch.from_numpy(frame_rgb).permute(2, 0, 1).float() / 255.0
     
-    # Detección
-    raw_boxes, raw_logits, raw_phrases = predict(
-        model=model,
-        image=image,
-        caption=TEXT_PROMPT,
-        box_threshold=BOX_THRESHOLD,
-        text_threshold=TEXT_THRESHOLD,
-        device=DEVICE,
-    )
+    with torch.no_grad():
+        raw_boxes, raw_logits, raw_phrases = predict(
+            model=model,
+            image=image,
+            caption=TEXT_PROMPT,
+            box_threshold=BOX_THRESHOLD,
+            text_threshold=TEXT_THRESHOLD,
+            device=DEVICE,
+        )
     
-    boxes   = raw_boxes.numpy()
-    logits  = raw_logits.numpy()
+    boxes = raw_boxes.numpy()
+    logits = raw_logits.numpy()
     phrases = list(raw_phrases)
     
     if len(boxes) == 0:
-        return np.array([]), np.array([]), [], valid_zones
+        return np.array([]), np.array([]), [], valid_zones, []
     
-    # Separar cajas y pallets
     box_idx, pallet_idx = split_boxes_pallets(boxes, logits, phrases)
+    b, l, ph = boxes[box_idx], logits[box_idx], [phrases[i] for i in box_idx]
     
-    b  = boxes[box_idx].copy()
-    l  = logits[box_idx].copy()
-    ph = [phrases[i] for i in box_idx]
-    
-    # Aplicar filtros en cascada
-    b, l, ph = apply_beam_zone_filter(b, l, ph, valid_zones, img_height)
+    # Cascade Pipeline 1-6
+    b, l, ph = apply_beam_zone_filter(b, l, ph, get_valid_zones(beams, proc_h), proc_h)
     b, l, ph = apply_min_size_filter(b, l, ph, MIN_BOX_SIZE)
     b, l, ph = apply_aspect_ratio_filter(b, l, ph, MAX_BOX_ASPECT_RATIO)
     b, l, ph = apply_containment_filter(b, l, ph, CONTAINMENT_THRESHOLD)
     b, l, ph = apply_center_distance_filter(b, l, ph, CENTER_DIST_THRESHOLD)
     b, l, ph = apply_nms(b, l, ph, IOU_THRESHOLD)
     
-    # Filtro pallet
-    if len(b) > 0 and len(pallet_idx) > 0:
+    # 7 - Pallet Filter unificado
+    if len(pallet_idx) > 0:
         all_b  = np.concatenate([b,  boxes[pallet_idx]], axis=0)
         all_l  = np.concatenate([l,  logits[pallet_idx]], axis=0)
         all_ph = ph + [phrases[i] for i in pallet_idx]
+        
         kept_box_idx, _ = apply_pallet_filter(
             all_b, all_l, all_ph,
             box_idx=np.arange(len(b)),
@@ -431,94 +447,21 @@ def process_frame(model, frame_bgr, frame_num, img_height, img_width):
         b  = b[kept_box_idx]
         l  = l[kept_box_idx]
         ph = [ph[i] for i in kept_box_idx]
-    
-    return b, l, ph, valid_zones
 
+    # 8 - SAM Contornos (Si está activado)
+    contornos = []
+    if ENABLE_SAM_REALTIME and len(b) > 0 and sam_model is not None:
+        contornos = segmentar_cajas(
+            image_bgr=proc_frame,
+            boxes=b,
+            logits=l,
+            phrases=ph,
+            sam_model=sam_model,
+            run_dir=None, # No guardamos imágenes debug en realtime
+            stem=None
+        )
 
-def process_video(model, video_path, output_dir, frame_skip):
-    """Procesa el video y guarda fotogramas anotados."""
-    
-    cap = cv2.VideoCapture(str(video_path))
-    if not cap.isOpened():
-        raise ValueError(f"No se pudo abrir el video: {video_path}")
-    
-    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-    fps = cap.get(cv2.CAP_PROP_FPS)
-    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    
-    print(f"📹 Video: {video_path.name}")
-    print(f"   Resolución: {width}x{height}")
-    print(f"   FPS: {fps:.2f}")
-    print(f"   Total frames: {total_frames}")
-    print(f"   Frames a procesar: ~{total_frames // frame_skip}")
-    print(f"   Salto: 1 de cada {frame_skip}")
-    print()
-    
-    frame_num = 0
-    processed = 0
-    results = []
-    
-    while True:
-        ret, frame = cap.read()
-        if not ret:
-            break
-        
-        # Procesar solo cada N frames
-        if frame_num % frame_skip == 0:
-            print(f"   🔍 Frame {frame_num}/{total_frames}", end="")
-            
-            # Procesar frame
-            boxes, logits, phrases, valid_zones = process_frame(
-                model, frame, frame_num, height, width
-            )
-            
-            n_detections = len(boxes)
-            print(f" → {n_detections} caja(s)")
-            
-            # Anotar frame
-            annotated = frame.copy()
-            if n_detections > 0:
-                annotated = draw_detections(annotated, boxes, logits, phrases)
-            annotated = draw_params_overlay(annotated, frame_num, n_detections, valid_zones)
-            
-            # Guardar
-            out_path = output_dir / f"frame_{frame_num:06d}.jpg"
-            cv2.imwrite(str(out_path), annotated)
-            
-            results.append({
-                "frame": frame_num,
-                "detecciones": n_detections,
-            })
-            
-            processed += 1
-        
-        frame_num += 1
-    
-    cap.release()
-    
-    return results, processed
-
-
-# ============================================================
-#  📊  RESUMEN
-# ============================================================
-
-def print_summary(results, output_dir, video_name):
-    print("\n" + "=" * 60)
-    print("📊  RESUMEN VIDEO")
-    print("=" * 60)
-    
-    total_boxes = sum(r["detecciones"] for r in results)
-    frames_with_boxes = sum(1 for r in results if r["detecciones"] > 0)
-    
-    print(f"  Video           : {video_name}")
-    print(f"  Frames procesados: {len(results)}")
-    print(f"  Frames con cajas : {frames_with_boxes}")
-    print(f"  Total detecciones: {total_boxes}")
-    print(f"  Media por frame  : {total_boxes / len(results):.1f}" if results else "N/A")
-    print(f"  Resultados en    : {output_dir}")
-    print("=" * 60)
+    return b, l, ph, valid_zones, contornos
 
 
 # ============================================================
@@ -526,28 +469,104 @@ def print_summary(results, output_dir, video_name):
 # ============================================================
 
 def main():
+    global FRAME_SKIP
+    
     print(f"⚡ Dispositivo: {DEVICE.upper()}")
-    print("📦 Cargando modelo...")
+    print("📦 Cargando modelo GroundingDINO...")
     model = load_model(CONFIG_PATH, WEIGHTS_PATH).to(DEVICE)
+    model.eval()
+
+    sam_model = None
+    if ENABLE_SAM_REALTIME:
+        print("🪄 Cargando modelo Segment Anything (SAM)...")
+        sam_model = cargar_segmentador()
     
-    video_path = Path(VIDEO_PATH)
-    if not video_path.exists():
-        print(f"❌ No se encontró el video: {VIDEO_PATH}")
-        return
-    
-    # Crear carpeta de salida con nombre del video
-    output_dir = Path(OUTPUT_BASE) / video_path.stem
+    output_dir = Path(OUTPUT_BASE)
     output_dir.mkdir(parents=True, exist_ok=True)
     
-    print(f"📁 Resultados en: {output_dir}")
-    print()
+    stream = StreamCapture(STREAM_URL)
+    if not stream.start():
+        print(f"❌ No se pudo conectar a {STREAM_URL}")
+        return
     
-    results, processed = process_video(model, video_path, output_dir, FRAME_SKIP)
-    print_summary(results, output_dir, video_path.name)
+    print("\n🎬 Iniciando detección en tiempo real...")
+    print("   Controles: [Q]Salir [S]Guardar [P]Pausa [+/-]Skip\n")
     
-    print(f"\n✅ Procesados {processed} frames")
-    print(f"💾 Guardados en: {output_dir}")
-
+    frame_count = 0
+    fps = 0.0
+    fps_start = time.time()
+    fps_frames = 0
+    paused = False
+    
+    last_boxes = np.array([])
+    last_logits = np.array([])
+    last_phrases = []
+    last_zones = None
+    last_contours = []
+    
+    while True:
+        frame = stream.read()
+        if frame is None:
+            time.sleep(0.01)
+            continue
+        
+        h, w = frame.shape[:2]
+        display = frame.copy()
+        
+        if not paused and frame_count % FRAME_SKIP == 0:
+            last_boxes, last_logits, last_phrases, last_zones, last_contours = process_frame(model, sam_model, frame)
+            
+            if SAVE_ON_DETECTION and len(last_boxes) > 0:
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
+                save_path = output_dir / f"det_{timestamp}.jpg"
+                annotated = draw_detections(frame.copy(), last_boxes, last_logits, 
+                                           last_phrases, h, w, last_contours)
+                annotated = draw_overlay(annotated, fps, len(last_boxes), 
+                                        FRAME_SKIP, paused, last_zones)
+                cv2.imwrite(str(save_path), annotated)
+            
+            fps_frames += 1
+        
+        if len(last_boxes) > 0:
+            display = draw_detections(display, last_boxes, last_logits, 
+                                     last_phrases, h, w, last_contours)
+        
+        if time.time() - fps_start >= 1.0:
+            fps = fps_frames / (time.time() - fps_start)
+            fps_start = time.time()
+            fps_frames = 0
+        
+        display = draw_overlay(display, fps, len(last_boxes), FRAME_SKIP, paused, last_zones)
+        
+        if DISPLAY_SCALE != 1.0:
+            display = cv2.resize(display, None, fx=DISPLAY_SCALE, fy=DISPLAY_SCALE)
+        
+        cv2.imshow("Detector Almacen - Tiempo Real", display)
+        
+        key = cv2.waitKey(1) & 0xFF
+        if key == ord('q'):
+            break
+        elif key == ord('s'):
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            save_path = output_dir / f"manual_{timestamp}.jpg"
+            cv2.imwrite(str(save_path), display)
+            print(f"💾 Guardado: {save_path}")
+        elif key == ord('p'):
+            paused = not paused
+            print(f"{'⏸️ Pausado' if paused else '▶️ Reanudado'}")
+        elif key == ord('+') or key == ord('='):
+            FRAME_SKIP = min(FRAME_SKIP + 1, 30)
+            print(f"⏭️ Frame skip: {FRAME_SKIP}")
+        elif key == ord('-'):
+            FRAME_SKIP = max(FRAME_SKIP - 1, 1)
+            print(f"⏮️ Frame skip: {FRAME_SKIP}")
+        
+        frame_count += 1
+    
+    stream.stop()
+    cv2.destroyAllWindows()
+    print("\n✅ Finalizado")
+    print(f"💾 Capturas guardadas en: {output_dir}")
 
 if __name__ == "__main__":
     main()

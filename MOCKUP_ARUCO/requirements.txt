@@ -1,0 +1,7 @@
+# PC / Mac
+opencv-contrib-python>=4.7.0
+numpy>=1.23.0
+matplotlib>=3.6.0
+
+# Raspberry Pi → instalar con apt, no pip:
+# sudo apt install -y python3-picamera2 python3-opencv python3-numpy python3-matplotlib

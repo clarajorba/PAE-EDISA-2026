@@ -1,0 +1,9 @@
+opencv-python
+torch
+torchvision
+numpy
+ultralytics
+pyzbar
+timm
+transformers
+supervision

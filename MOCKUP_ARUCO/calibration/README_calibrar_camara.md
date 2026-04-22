@@ -1,6 +1,8 @@
 # calibrar_camara.py — Guía de uso
 
-Script de calibración para la **Raspberry Pi Camera Module 2 NoIR** conectada a una **Raspberry Pi 4 Model B**. Genera los parámetros intrínsecos de la cámara (`camera_matrix` y `dist_coeffs`) necesarios para el detector 3D de ArUco.
+Script de calibración para la **Raspberry Pi Camera Module 3 NoIR** conectada a una **Raspberry Pi 4 Model B**. Genera los parámetros intrínsecos de la cámara (`camera_matrix` y `dist_coeffs`) necesarios para el detector 3D de ArUco.
+
+> **Importante:** La Camera Module 3 NoIR tiene **autoenfoque (AF)**. El script lo desactiva automáticamente y fija el foco a distancia media (~50–150 cm). Esto es necesario para que la calibración sea válida durante la detección ArUco.
 
 ---
 
@@ -9,7 +11,7 @@ Script de calibración para la **Raspberry Pi Camera Module 2 NoIR** conectada a
 | Elemento | Detalles |
 |---|---|
 | Raspberry Pi 4 Model B | Con Raspberry Pi OS instalado (Bullseye o Bookworm) |
-| Camera Module 2 NoIR | Conectada al puerto CSI mediante el cable ribbon |
+| Camera Module 3 NoIR | Conectada al puerto CSI mediante el cable ribbon |
 | Monitor + teclado | Conectados a la Pi directamente, **o** conexión SSH con X11 |
 | Tablero de ajedrez impreso | 8×8 cuadrados (ver sección más abajo) |
 | Regla | Para medir el tamaño real de un cuadrado impreso |
@@ -24,6 +26,8 @@ Script de calibración para la **Raspberry Pi Camera Module 2 NoIR** conectada a
 4. Inserta el cable ribbon de la cámara con los **contactos metálicos mirando hacia el conector HDMI** (hacia la placa, no hacia afuera).
 5. Baja el pestillo para fijarlo.
 6. Enciende la Raspberry Pi.
+
+> La Camera Module 3 usa el mismo conector CSI de 15 pines que la Module 2. El cable ribbon es diferente (más corto y con tira azul), pero el puerto es el mismo.
 
 ---
 
@@ -73,7 +77,7 @@ sudo apt update && sudo apt upgrade -y
 sudo apt install -y python3-picamera2 python3-opencv python3-numpy
 ```
 
-> `picamera2` es la librería oficial de Raspberry Pi para acceder a la Camera Module 2 con el stack moderno `libcamera`. No uses `opencv-python` de pip en la Pi — usa el paquete `apt` para evitar conflictos con libcamera.
+> `picamera2` es la librería oficial de Raspberry Pi para acceder a la Camera Module 3 con el stack moderno `libcamera`. No uses `opencv-python` de pip en la Pi — usa el paquete `apt` para evitar conflictos con libcamera.
 
 ### Verificar la instalación
 
@@ -122,7 +126,7 @@ El script detecta un tablero con **7×7 esquinas interiores**, que equivale a un
 
 Después de imprimir, **mide con regla** el lado de uno de los cuadrados en metros.
 
-Abre el script y edita la línea 48:
+Abre el script y edita la línea correspondiente:
 
 ```python
 SQUARE_SIZE = 0.025  # cámbialo por tu medida real en metros
@@ -133,6 +137,28 @@ Por ejemplo:
 - Si mide 3.0 cm → `SQUARE_SIZE = 0.030`
 
 > Esta medición afecta directamente a la precisión de la estimación de posición 3D. Mídela con cuidado.
+
+---
+
+## Paso 5b — Ajustar el foco (Camera Module 3 NoIR)
+
+La Camera Module 3 tiene autoenfoque. El script lo desactiva y usa **foco fijo** mediante el parámetro `LENS_POSITION`:
+
+```python
+LENS_POSITION = 4.0   # 0.0=infinito, 10.0=muy cerca
+```
+
+| Valor | Distancia de foco aproximada |
+|---|---|
+| 0.0 | Infinito (> 3 m) |
+| 2.0 | ~2 m |
+| 4.0 | ~50–100 cm ← recomendado para ArUco |
+| 8.0 | ~20 cm |
+| 10.0 | Muy cerca |
+
+Ajusta `LENS_POSITION` al valor que deje el tablero más nítido en la distancia a la que usarás el detector. Si el tablero se ve desenfocado durante la calibración, modifica este valor.
+
+> Usa **el mismo `LENS_POSITION`** en el detector (`medir_error_estatico.py` / `detector_3d.py`) para que la calibración sea válida.
 
 ---
 
@@ -170,7 +196,7 @@ La ventana de vídeo aparecerá en tu pantalla local aunque el script corra en l
 
 ## Paso 7 — Proceso de calibración
 
-Al ejecutar el script se abre una ventana con el feed en directo de la Camera Module 2 NoIR.
+Al ejecutar el script se abre una ventana con el feed en directo de la Camera Module 3 NoIR con el foco ya fijado.
 
 ### Indicadores en pantalla
 
@@ -283,10 +309,16 @@ grep camera /boot/firmware/config.txt
 
 Asegúrate de conectarte con `ssh -X` (no solo `ssh`). En macOS instala **XQuartz** primero.
 
+### El tablero se ve desenfocado
+
+La Camera Module 3 NoIR tiene AF que el script desactiva a `LENS_POSITION=4.0`. Si el tablero se ve borroso, ajusta ese valor en el script:
+- Tablero más lejos → bajar el valor (hacia 0.0)
+- Tablero más cerca → subir el valor (hacia 10.0)
+
 ### El tablero no se detecta (siempre en naranja)
 
-- Asegúrate de que el tablero impreso es de **8×8 cuadrados** (7×7 esquinas interiores). Un tablero distinto no funcionará.
-- Mejora la iluminación — la Camera Module 2 NoIR es muy sensible al infrarrojo; en interior puede ayudar añadir luz blanca directa sobre el tablero.
+- Asegúrate de que el tablero impreso es de **8×8 cuadrados** (7×7 esquinas interiores).
+- Mejora la iluminación — la Camera Module 3 NoIR no tiene filtro IR; en interior añade luz blanca directa sobre el tablero.
 - Mantén el tablero completamente dentro del encuadre, sin partes cortadas.
 - Evita reflejos sobre el papel (ángulo ligeramente oblicuo puede ayudar).
 

@@ -1,0 +1,7 @@
+# Python dependencies for the QR/barcode detection scripts in this folder.
+# Note: `pyzbar` also requires the native `zbar` library to be installed
+# on the system separately.
+
+numpy
+opencv-python
+pyzbar
