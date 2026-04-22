@@ -1,15 +1,19 @@
 """
 calibrar_camara.py
 ==================
-Script de calibración de cámara para Raspberry Pi Camera Module 2 NoIR.
+Script de calibración de cámara para Raspberry Pi Camera Module 3 NoIR.
 Usa picamera2 (stack libcamera) para capturar frames y OpenCV para detectar
 el patrón de tablero de ajedrez y calcular los parámetros intrínsecos.
+
+La Camera Module 3 NoIR tiene autoenfoque (AF). Este script lo desactiva
+y fija el foco a distancia media (~50–150 cm) para que la calibración sea
+válida en el rango de uso del detector ArUco.
 
 Requisitos del sistema (Raspberry Pi OS Bullseye / Bookworm):
   sudo apt install -y python3-picamera2 python3-opencv python3-numpy
 
 Instrucciones:
-  1. Conecta la Camera Module 2 NoIR al puerto CSI de la Raspberry Pi.
+  1. Conecta la Camera Module 3 NoIR al puerto CSI de la Raspberry Pi.
   2. Habilita la cámara con: sudo raspi-config -> Interface Options -> Camera
   3. Imprime un tablero de ajedrez de 8x8 cuadrados (7x7 esquinas interiores).
      Descárgalo en: https://calib.io/pages/camera-calibration-pattern-generator
@@ -48,9 +52,13 @@ BOARD_SIZE = (7, 7)
 # Mídelo con regla después de imprimir (la impresora puede escalar)
 SQUARE_SIZE = 0.025  # 2.5 cm — ajusta según tu impresión
 
-# Resolución de captura (Camera Module 2 soporta hasta 3280x2464)
+# Resolución de captura (Camera Module 3 soporta hasta 4608x2592)
 # Para calibración es suficiente con 1280x720 y va más fluido en la Pi
 RESOLUCION = (1280, 720)
+
+# Posición de lente para foco fijo (Camera Module 3 NoIR tiene AF)
+# 0.0 = infinito, 10.0 = muy cerca. Para ArUco a 50–150 cm usar ~3.0–5.0
+LENS_POSITION = 4.0   # ajusta si el tablero se ve desenfocado
 
 # Fuente de vídeo — solo se usa si picamera2 NO está disponible
 VIDEO_SOURCE_FALLBACK = 0
@@ -68,8 +76,9 @@ OUTPUT_FILE = OUTPUT_DIR / "camera_calibration.json"
 
 def abrir_camara():
     """
-    Abre la Camera Module 2 NoIR via picamera2.
-    Si no está disponible, fallback a cv2.VideoCapture.
+    Abre la Camera Module 3 NoIR via picamera2.
+    Desactiva el autoenfoque y fija el foco a LENS_POSITION.
+    Si picamera2 no está disponible, fallback a cv2.VideoCapture.
     Devuelve (read_fn, release_fn) donde read_fn() -> (ok, frame_BGR).
     """
     if USAR_PICAMERA2:
@@ -79,6 +88,15 @@ def abrir_camara():
         )
         picam2.configure(config)
         picam2.start()
+
+        # Desactivar AF y fijar foco (Camera Module 3 NoIR)
+        try:
+            picam2.set_controls({"AfMode": 0, "LensPosition": LENS_POSITION})
+            print(f"  Autoenfoque desactivado — foco fijo LensPosition={LENS_POSITION}")
+        except Exception:
+            print("  [AVISO] No se pudo fijar el foco (¿Camera Module 2?). Continuando.")
+
+        import time; time.sleep(0.5)   # esperar a que el foco se estabilice
         print(f"  Cámara abierta (picamera2): {RESOLUCION[0]}x{RESOLUCION[1]}")
 
         def read_fn():
@@ -142,7 +160,7 @@ def capturar_imagenes(read_fn):
     n_capturas = 0
 
     print("\n" + "=" * 55)
-    print("  CALIBRACIÓN — Camera Module 2 NoIR")
+    print("  CALIBRACIÓN — Camera Module 3 NoIR")
     print("=" * 55)
     print(f"  Tablero: {BOARD_SIZE[0]}x{BOARD_SIZE[1]} esquinas interiores")
     print(f"  Tamaño cuadrado: {SQUARE_SIZE * 100:.1f} cm")
@@ -255,7 +273,7 @@ def guardar_calibracion(camera_matrix, dist_coeffs, mean_err, img_size):
 
     data = {
         "calibration_date": datetime.now().isoformat(),
-        "camera_model": "Raspberry Pi Camera Module 2 NoIR",
+        "camera_model": "Raspberry Pi Camera Module 3 NoIR",
         "image_size": list(img_size),
         "reprojection_error_px": round(float(mean_err), 4),
         "camera_matrix": camera_matrix.tolist(),
