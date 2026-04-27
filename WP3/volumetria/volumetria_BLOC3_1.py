@@ -7,7 +7,7 @@ import statistics
 # CONFIGURACIÓ DE L'ENTORN
 # ==========================================
 DISTANCIA_LIDAR_CM = 150.0
-DISTANCIA_FOCAL_PX = 1410.71
+DISTANCIA_FOCAL_PX = 1410.71 #2976.74 iphone11
 
 # Factor per compensar l'angle picat del dron a l'eix Z
 # De momeent el deixem en 1 (sense correcció), i l'anirem ajustant quan fem les proves amb el dron real.
