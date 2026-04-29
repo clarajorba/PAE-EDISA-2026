@@ -121,9 +121,6 @@ make px4_sitl jmavsim
 ### 3. Configurar MAVLink en Raspberry Pi
 
 ```bash
-# Instalar mavproxy (opcional para debugging)
-pip3 install mavproxy
-
 # Configurar serial (ajustar /dev/ttyAMA0 según tu puerto)
 sudo raspi-config  # Habilitar serial
 ```
