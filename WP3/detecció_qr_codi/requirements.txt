@@ -1,7 +1,9 @@
 # Python dependencies for the QR/barcode detection scripts in this folder.
 # Note: `pyzbar` also requires the native `zbar` library to be installed
 # on the system separately.
+# macOS: brew install zbar
+# Debian/Raspberry Pi OS: sudo apt install -y libzbar0
 
-numpy
-opencv-python
-pyzbar
+numpy==2.4.4
+opencv-python==4.13.0.92
+pyzbar==0.1.9
