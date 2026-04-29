@@ -16,11 +16,15 @@ FONT_VIDEO = 0
 # FONT_VIDEO = "tcp://172.20.10.3:8888"
 
 DEBUG = False
+# True: torna a gravar i substitueix les imatges de la carpeta CB_in.
+# False: no obre la càmera i analitza les imatges ja existents a CB_in.
+REGRAVAR_IMATGES = True
 PROCESSAR_CADA_N_FRAMES = 1
 INTERVAL_GUARDAT_SEGONS = 0.5
 ESCALA_DETECCIO_RAPIDA = 0.75
 ESCALA_DETECCIO_FINE = 1.0
-CARPETA_CAPTURA = "CB"
+CARPETA_ENTRADA = "CB_in"
+CARPETA_SORTIDA = "CB_out"
 NOM_BASE_CAPTURA = "captura_inventari"
 QUALITAT_JPEG = 90
 TITOL_FINESTRA = "Gestio d'Inventari Drons"
@@ -125,21 +129,31 @@ def esperar_primer_frame(stream, timeout=5.0):
     return False, None, None
 
 
-def preparar_carpeta_captura(base_dir):
-    captura_dir = os.path.join(base_dir, CARPETA_CAPTURA)
-    os.makedirs(captura_dir, exist_ok=True)
+def netejar_carpeta(path_carpeta):
+    os.makedirs(path_carpeta, exist_ok=True)
 
-    # Cada execució recrea el contingut de CB des de zero.
-    for nom in os.listdir(captura_dir):
-        ruta = os.path.join(captura_dir, nom)
+    for nom in os.listdir(path_carpeta):
+        ruta = os.path.join(path_carpeta, nom)
         if os.path.isdir(ruta):
             shutil.rmtree(ruta)
         else:
             os.remove(ruta)
 
+def preparar_carpeta_captura(base_dir):
+    captura_dir = os.path.join(base_dir, CARPETA_ENTRADA)
+    os.makedirs(captura_dir, exist_ok=True)
+
+    # En mode captura, cada execució recrea el contingut de la carpeta CB_in.
+    netejar_carpeta(captura_dir)
+
     marca_temps = time.strftime("%Y%m%d_%H%M%S")
     prefix = f"{NOM_BASE_CAPTURA}_{marca_temps}"
     return captura_dir, prefix
+
+def preparar_carpeta_sortida(sortida_dir):
+    # La carpeta CB_out sempre representa l'últim postprocessat.
+    netejar_carpeta(sortida_dir)
+    return sortida_dir
 
 
 def guardar_fotograma(frame, captura_dir, prefix, index_frame):
@@ -156,11 +170,11 @@ def guardar_fotograma(frame, captura_dir, prefix, index_frame):
 
     return image_path
 
-def obtenir_fotogrames_guardats(captura_dir, prefix):
+def obtenir_fotogrames_guardats(captura_dir, prefix=None):
     noms_fitxer = []
 
     for nom_fitxer in os.listdir(captura_dir):
-        if not nom_fitxer.startswith(prefix):
+        if prefix is not None and not nom_fitxer.startswith(prefix):
             continue
         if not nom_fitxer.lower().endswith(".jpg"):
             continue
@@ -190,7 +204,7 @@ def capturar_fotogrames(src, base_dir):
     captura_dir, prefix = preparar_carpeta_captura(base_dir)
 
     print("Guardando fotogramas...")
-    print(f"Carpeta de captura: {captura_dir}")
+    print(f"Carpeta d'entrada: {captura_dir}")
     print("Prem 'q' per finalitzar la captura.")
 
     frame_actual = frame_inicial
@@ -335,25 +349,63 @@ def preparar_imatges_deteccio(gray, incloure_otsu=False, incloure_adaptativa=Fal
 
     return imatges
 
+def construir_clau_deduccio(det):
+    """
+    Clau aproximada per evitar repetir el mateix codi llegit amb diferents preprocessats.
+    El text forma part de la clau perquè dos codis diferents, encara que estiguin a prop,
+    no es descartin entre ells.
+    """
+    pas_posicio = 30
+    pas_mida = 30
+    return (
+        det["tipus"],
+        det["text"],
+        det["cx"] // pas_posicio,
+        det["cy"] // pas_posicio,
+        det["w"] // pas_mida,
+        det["h"] // pas_mida,
+    )
+
+def es_deteccio_duplicada(det, deteccions_final, vistos):
+    clau = construir_clau_deduccio(det)
+    if clau in vistos:
+        return True
+
+    marge_posicio = 30
+    marge_mida = 30
+
+    for det_existent in deteccions_final:
+        if det["tipus"] != det_existent["tipus"]:
+            continue
+        if det["text"] != det_existent["text"]:
+            continue
+
+        mateixa_posicio = (
+            abs(det["cx"] - det_existent["cx"]) <= marge_posicio
+            and abs(det["cy"] - det_existent["cy"]) <= marge_posicio
+        )
+        mida_similar = (
+            abs(det["w"] - det_existent["w"]) <= marge_mida
+            and abs(det["h"] - det_existent["h"]) <= marge_mida
+        )
+
+        if mateixa_posicio and mida_similar:
+            return True
+
+    return False
+
 def afegir_deteccions(deteccions_raw, escala, deteccions_final, vistos):
     for codi in deteccions_raw:
         det = construir_dades_deteccio(codi, escala)
         if det is None:
             continue
 
-        clau = (
-            det["tipus"],
-            det["text"],
-            det["x"] // 20,
-            det["y"] // 20,
-            det["w"] // 20,
-            det["h"] // 20,
-        )
-
-        if clau in vistos:
+        if es_deteccio_duplicada(det, deteccions_final, vistos):
+            if DEBUG:
+                print(f"[DEBUG] Duplicat ignorat: {det['tipus']} | {det['text']}")
             continue
 
-        vistos.add(clau)
+        vistos.add(construir_clau_deduccio(det))
         deteccions_final.append(det)
 
 def hi_ha_tipus_prioritari(deteccions, tipus_objectiu):
@@ -379,9 +431,11 @@ def detectar_codis_mixtos(frame, tipus_prioritaris=None):
     """
     Manté exactament l'estratègia actual:
     1. passada ràpida a escala reduïda
-    2. fallback complet amb preprocessats addicionals
+    2. passada fina amb preprocessats addicionals
+
+    tipus_prioritaris es conserva per compatibilitat amb la resta del codi,
+    però ja no atura la cerca: s'acumulen tots els codis vàlids del frame.
     """
-    tipus_prioritaris = set(tipus_prioritaris or [])
     deteccions_final = []
     vistos = set()
 
@@ -393,8 +447,6 @@ def detectar_codis_mixtos(frame, tipus_prioritaris=None):
             deteccions_final,
             vistos,
         )
-        if hi_ha_tipus_prioritari(deteccions_final, tipus_prioritaris):
-            return deteccions_final
 
     gray_fine = obtenir_frame_gris(frame, ESCALA_DETECCIO_FINE)
     mateixa_escala = abs(ESCALA_DETECCIO_FINE - ESCALA_DETECCIO_RAPIDA) < 1e-6
@@ -414,8 +466,6 @@ def detectar_codis_mixtos(frame, tipus_prioritaris=None):
             deteccions_final,
             vistos,
         )
-        if hi_ha_tipus_prioritari(deteccions_final, tipus_prioritaris):
-            break
 
     return deteccions_final
 
@@ -427,12 +477,16 @@ def crear_estat_inventari(estanteries_valides, sscc_a_producte):
     return {
         "estanteria_actual": None,
         "temps_obertura": 0.0,
-        "temps_tancament": 0.0,
+        # Evita un cooldown inicial fals: abans de tancar cap transacció,
+        # la primera estanteria detectada ha de poder obrir-se immediatament.
+        "temps_tancament": -float("inf"),
         "productes_temporals": {},
         "inventari_global": {},
         "estanteries_valides": estanteries_valides,
         "sscc_a_producte": sscc_a_producte,
         "sscc_vistos_actuals": set(),
+        "codis_detectats_globals": set(),
+        "registre_codis": [],
         "estat_text": "Estat: ESPERANT ESTANTERIA",
         "estat_color": (255, 255, 255),
     }
@@ -465,6 +519,79 @@ def dibuixar_estat_inventari(frame, estat_inventari, temps_actual=None):
         2,
     )
 
+def prioritat_processament_inventari(det, estat_inventari):
+    """
+    Ordena les deteccions sense filtrar-les:
+    - si encara no hi ha estanteria, primer intentem obrir-la
+    - si ja n'hi ha una oberta, primer registrem tots els productes visibles
+    """
+    tipus = det["tipus"]
+    text = det["text"]
+
+    if estat_inventari["estanteria_actual"] is None:
+        if tipus == "CODE39" and text in estat_inventari["estanteries_valides"]:
+            return 0
+        if tipus == "CODE128" and text.startswith("00"):
+            return 1
+        return 2
+
+    if tipus == "CODE128" and text.startswith("00"):
+        return 0
+    if tipus == "CODE39" and text == estat_inventari["estanteria_actual"]:
+        return 1
+    return 2
+
+def registrar_codis_detectats(codis_detectats, estat_inventari, temps_actual):
+    """
+    Desa en memòria tots els codis únics llegits durant la prova.
+    No afecta la lògica d'inventari ni escriu cap fitxer.
+    """
+    for det in codis_detectats:
+        tipus = det["tipus"]
+        text = det["text"]
+        clau = (tipus, text)
+
+        if clau in estat_inventari["codis_detectats_globals"]:
+            if DEBUG:
+                print(f"[DEBUG] Codi ja registrat globalment: {tipus} | {text}")
+            continue
+
+        si_es_estanteria_valida = (
+            tipus == "CODE39"
+            and text in estat_inventari["estanteries_valides"]
+        )
+        si_es_producte_code128 = tipus == "CODE128" and text.startswith("00")
+        si_consta_al_manifest = (
+            text in estat_inventari["estanteries_valides"]
+            or text in estat_inventari["sscc_a_producte"]
+        )
+        producte = "No"
+        if si_es_producte_code128:
+            producte = estat_inventari["sscc_a_producte"].get(text, "Sí")
+
+        estat_inventari["codis_detectats_globals"].add(clau)
+        estat_inventari["registre_codis"].append({
+            "tipus": tipus,
+            "text": text,
+            "temps_detectat": temps_actual,
+            "estanteria_actual": estat_inventari["estanteria_actual"],
+            "estanteria_oberta": False,
+            "estanteria_tancada": False,
+            "si_es_estanteria_valida": si_es_estanteria_valida,
+            "si_es_producte_code128": si_es_producte_code128,
+            "producte": producte,
+            "si_consta_al_manifest": si_consta_al_manifest,
+        })
+
+        if DEBUG:
+            print(f"[DEBUG] Nou codi registrat globalment: {tipus} | {text}")
+
+def marcar_registre_codi(estat_inventari, tipus, text, camp):
+    for registre in estat_inventari["registre_codis"]:
+        if registre["tipus"] == tipus and registre["text"] == text:
+            registre[camp] = True
+            return
+
 def processar_fotograma_inventari(frame, estat_inventari, temps_actual=None):
     """
     Aquesta funció només s'utilitza al postprocessat.
@@ -479,8 +606,19 @@ def processar_fotograma_inventari(frame, estat_inventari, temps_actual=None):
 
     codis_detectats = detectar_codis_mixtos(frame, tipus_prioritaris=tipus_prioritaris)
     hi_ha_deteccions = bool(codis_detectats)
+    registrar_codis_detectats(codis_detectats, estat_inventari, temps_actual)
 
-    for det in codis_detectats:
+    if DEBUG:
+        print(f"[DEBUG] Codis detectats al frame: {len(codis_detectats)}")
+        for det in codis_detectats:
+            print(f"[DEBUG] - {det['tipus']} | {det['text']}")
+
+    codis_processament = sorted(
+        codis_detectats,
+        key=lambda det: prioritat_processament_inventari(det, estat_inventari),
+    )
+
+    for det in codis_processament:
         tipus = det["tipus"]
         text = det["text"]
         pts = det["pts"]
@@ -512,6 +650,12 @@ def processar_fotograma_inventari(frame, estat_inventari, temps_actual=None):
                     estat_inventari["temps_obertura"] = temps_actual
                     estat_inventari["productes_temporals"] = {}
                     estat_inventari["sscc_vistos_actuals"] = set()
+                    marcar_registre_codi(
+                        estat_inventari,
+                        tipus,
+                        text,
+                        "estanteria_oberta",
+                    )
                     print(f"\n[+] OBERTA TRANSACCIÓ: {text}")
                 else:
                     cv2.putText(
@@ -535,6 +679,12 @@ def processar_fotograma_inventari(frame, estat_inventari, temps_actual=None):
 
                     estat_inventari["inventari_global"][text] = resum_quantitats
 
+                    marcar_registre_codi(
+                        estat_inventari,
+                        tipus,
+                        text,
+                        "estanteria_tancada",
+                    )
                     print(f"[-] TANCADA TRANSACCIÓ: {text}\n")
 
                     estat_inventari["estanteria_actual"] = None
@@ -552,7 +702,7 @@ def processar_fotograma_inventari(frame, estat_inventari, temps_actual=None):
 
                 if text in sscc_vistos:
                     if DEBUG:
-                        print(f"SSCC repetit ignorat: {text}")
+                        print(f"[DEBUG] SSCC repetit ignorat: {text}")
                     continue
 
                 sscc_vistos.add(text)
@@ -566,6 +716,7 @@ def processar_fotograma_inventari(frame, estat_inventari, temps_actual=None):
 
                 if DEBUG:
                     print(
+                        f"[DEBUG] Nou SSCC afegit | "
                         f"producte: {clau_producte} | "
                         f"SSCC: {text} | "
                         f"estanteria: {estat_inventari['estanteria_actual']}"
@@ -574,18 +725,29 @@ def processar_fotograma_inventari(frame, estat_inventari, temps_actual=None):
     dibuixar_estat_inventari(frame, estat_inventari, temps_actual=temps_actual)
     return frame, hi_ha_deteccions
 
-def processar_fotogrames_guardats(captura_dir, prefix, estanteries_valides, sscc_a_producte):
+def processar_fotogrames_guardats(
+    entrada_dir,
+    sortida_dir,
+    prefix,
+    estanteries_valides,
+    sscc_a_producte,
+):
     """
     Fase offline:
-    - carrega els JPG guardats a CB
+    - carrega els JPG guardats a CB_in, o tots els JPG de CB_in si prefix és None
     - executa la detecció
-    - conserva les imatges anotades només quan hi ha deteccions
+    - desa les imatges processades i marcades a CB_out
     """
     print("Iniciando postprocesado...")
 
-    fotogrames_guardats = obtenir_fotogrames_guardats(captura_dir, prefix)
+    if not os.path.isdir(entrada_dir):
+        raise RuntimeError(f"No s'ha trobat la carpeta d'entrada: {entrada_dir}")
+
+    fotogrames_guardats = obtenir_fotogrames_guardats(entrada_dir, prefix)
     if not fotogrames_guardats:
-        raise RuntimeError(f"No s'han trobat fotogrames per processar a: {captura_dir}")
+        raise RuntimeError(f"No s'han trobat fotogrames per processar a: {entrada_dir}")
+
+    preparar_carpeta_sortida(sortida_dir)
 
     estat_inventari = crear_estat_inventari(estanteries_valides, sscc_a_producte)
 
@@ -600,20 +762,23 @@ def processar_fotogrames_guardats(captura_dir, prefix, estanteries_valides, sscc
 
         temps_captura = (index_frame - 1) * INTERVAL_GUARDAT_SEGONS
 
-        frame_processat, hi_ha_deteccions = processar_fotograma_inventari(
+        frame_processat, _ = processar_fotograma_inventari(
             frame,
             estat_inventari,
             temps_actual=temps_captura,
         )
 
-        if hi_ha_deteccions:
-            cv2.imwrite(
-                image_path,
-                frame_processat,
-                [cv2.IMWRITE_JPEG_QUALITY, QUALITAT_JPEG],
-            )
+        nom_sortida = os.path.basename(image_path)
+        image_path_sortida = os.path.join(sortida_dir, nom_sortida)
+
+        cv2.imwrite(
+            image_path_sortida,
+            frame_processat,
+            [cv2.IMWRITE_JPEG_QUALITY, QUALITAT_JPEG],
+        )
 
     print("Postprocesado finalizado.")
+    print(f"Imatges processades guardades a: {sortida_dir}")
     return estat_inventari
 
 def imprimir_resum_inventari(estat_inventari):
@@ -629,6 +794,37 @@ def imprimir_resum_inventari(estat_inventari):
         for codi_prod, quantitat in productes.items():
             print(f"  - {codi_prod}: {quantitat} unitats")
 
+def text_si_no(valor):
+    return "Sí" if valor else "No"
+
+def imprimir_codis_detectats(estat_inventari):
+    registre_codis = estat_inventari["registre_codis"]
+
+    print("\n--- CODIS DETECTATS DURANT LA PROVA ---")
+
+    if not registre_codis:
+        print("No s'ha detectat cap codi durant la prova.")
+        return
+
+    print(f"\nTotal codis únics detectats: {len(registre_codis)}")
+
+    for index, registre in enumerate(registre_codis, start=1):
+        print(f"\n[{index}] Tipus: {registre['tipus']}")
+        print(f"    Text: {registre['text']}")
+        print(
+            "    Estanteria oberta: "
+            f"{text_si_no(registre['estanteria_oberta'])}"
+        )
+        print(
+            "    Estanteria tancada: "
+            f"{text_si_no(registre['estanteria_tancada'])}"
+        )
+        print(f"    Producte: {registre['producte']}")
+        print(
+            "    Consta al manifest: "
+            f"{text_si_no(registre['si_consta_al_manifest'])}"
+        )
+
 # ============================================================
 # 7. MAIN
 # ============================================================
@@ -641,20 +837,30 @@ def main():
     estanteries_valides, sscc_a_producte = carregar_manifest(manifest_path)
     print(f"Estanteries carregades: {sorted(estanteries_valides)}")
 
-    captura = capturar_fotogrames(FONT_VIDEO, base_dir)
-    if captura is None:
-        return
+    if REGRAVAR_IMATGES:
+        print("Mode captura: es tornaran a gravar i substituir les imatges de CB_in.")
+        captura = capturar_fotogrames(FONT_VIDEO, base_dir)
+        if captura is None:
+            return
 
-    captura_dir, prefix = captura
+        entrada_dir, prefix = captura
+    else:
+        print("Mode anàlisi: es processaran les imatges existents de CB_in.")
+        entrada_dir = os.path.join(base_dir, CARPETA_ENTRADA)
+        prefix = None
+
+    sortida_dir = os.path.join(base_dir, CARPETA_SORTIDA)
 
     estat_inventari = processar_fotogrames_guardats(
-        captura_dir,
+        entrada_dir,
+        sortida_dir,
         prefix,
         estanteries_valides,
         sscc_a_producte,
     )
 
     imprimir_resum_inventari(estat_inventari)
+    imprimir_codis_detectats(estat_inventari)
 
 if __name__ == "__main__":
     main()
