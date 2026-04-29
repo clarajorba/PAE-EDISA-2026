@@ -1,67 +1,30 @@
 """
-calibrar_camara.py
-==================
-Script de calibración de cámara para Raspberry Pi Camera Module 3.
-Usa picamera2 (stack libcamera) para capturar frames y OpenCV para detectar
-el patrón de tablero de ajedrez y calcular los parámetros intrínsecos.
-
-La Camera Module 3 tiene autoenfoque (AF). Este script lo desactiva
-y fija el foco a distancia media (~50–150 cm) para que la calibración sea
-válida en el rango de uso del detector ArUco.
-
-Requisitos del sistema (Raspberry Pi OS Bullseye / Bookworm):
-  sudo apt install -y python3-picamera2 python3-opencv python3-numpy
-
-Instrucciones:
-  1. Conecta la Camera Module 3 al puerto CSI de la Raspberry Pi.
-  2. Habilita la cámara con: sudo raspi-config -> Interface Options -> Camera
-  3. Imprime un tablero de ajedrez de 8x8 cuadrados (7x7 esquinas interiores).
-     Descárgalo en: https://calib.io/pages/camera-calibration-pattern-generator
-  4. Mide con regla el lado de un cuadrado en metros y ajusta SQUARE_SIZE.
-  5. Ejecuta este script desde la raíz del proyecto:
-         python calibration/calibrar_camara.py
-  6. Con un monitor conectado a la Pi (o X11 via SSH), verás el feed en vivo.
-     Mueve el tablero a distintas posiciones. Pulsa ESPACIO para capturar.
-     Mínimo 15 capturas, recomendable 20-30.
-  7. Pulsa 'q' para calibrar y guardar en config/camera_calibration.json.
-  8. Copia los valores de camera_matrix y dist_coeffs a AppConfig en detector_3d.py.
+calibrar_camara_rpicam.py
+==========================
+Versión modificada para usar rpicam-still en lugar de picamera2 o cv2.VideoCapture.
+Ideal para Raspberry Pi 5 con cámara Module 3 NoIR.
 """
 
 import cv2
 import numpy as np
 import json
+import os
+import time
+import tempfile
+import shutil
 from datetime import datetime
 from pathlib import Path
-
-# ─── INTENTO DE IMPORTAR picamera2 ────────────────────────────────────────────
-try:
-    from picamera2 import Picamera2
-    USAR_PICAMERA2 = True
-except ImportError:
-    USAR_PICAMERA2 = False
-    print("[AVISO] picamera2 no disponible. Usando cv2.VideoCapture como fallback.")
-
 
 # ─── CONFIGURACIÓN ────────────────────────────────────────────────────────────
 
 # Esquinas interiores del tablero (columnas x filas)
-# Un tablero de 8x8 cuadrados tiene 7x7 esquinas interiores
 BOARD_SIZE = (7, 7)
 
 # Tamaño real de cada cuadrado en METROS
-# Mídelo con regla después de imprimir (la impresora puede escalar)
-SQUARE_SIZE = 0.025  # 2.5 cm — ajusta según tu impresión
+SQUARE_SIZE = 0.025  # 2.5 cm
 
-# Resolución de captura (Camera Module 3 soporta hasta 4608x2592)
-# Para calibración es suficiente con 1280x720 y va más fluido en la Pi
+# Resolución de captura
 RESOLUCION = (1280, 720)
-
-# Posición de lente para foco fijo (Camera Module 3 tiene AF)
-# 0.0 = infinito, 10.0 = muy cerca. Para ArUco a 50–150 cm usar ~3.0–5.0
-LENS_POSITION = 4.0   # ajusta si el tablero se ve desenfocado
-
-# Fuente de vídeo — solo se usa si picamera2 NO está disponible
-VIDEO_SOURCE_FALLBACK = 0
 
 # Mínimo de capturas para calibrar
 MIN_CAPTURAS = 15
@@ -72,207 +35,171 @@ OUTPUT_DIR = BASE_DIR / "config"
 OUTPUT_FILE = OUTPUT_DIR / "camera_calibration.json"
 
 
-# ─── APERTURA DE CÁMARA ───────────────────────────────────────────────────────
+# ─── CAPTURA CON RPICAM-STILL ─────────────────────────────────────────────────
 
-def abrir_camara():
+def capturar_con_rpicam():
     """
-    Abre la Camera Module 3 via picamera2.
-    Desactiva el autoenfoque y fija el foco a LENS_POSITION.
-    Si picamera2 no está disponible, fallback a cv2.VideoCapture.
-    Devuelve (read_fn, release_fn) donde read_fn() -> (ok, frame_BGR).
-    """
-    if USAR_PICAMERA2:
-        picam2 = Picamera2()
-        config = picam2.create_video_configuration(
-            main={"format": "BGR888", "size": RESOLUCION}
-        )
-        picam2.configure(config)
-        picam2.start()
-
-        # Desactivar AF y fijar foco (Camera Module 3)
-        try:
-            picam2.set_controls({"AfMode": 0, "LensPosition": LENS_POSITION})
-            print(f"  Autoenfoque desactivado — foco fijo LensPosition={LENS_POSITION}")
-        except Exception:
-            print("  [AVISO] No se pudo fijar el foco (¿Camera Module 2?). Continuando.")
-
-        import time; time.sleep(0.5)   # esperar a que el foco se estabilice
-        print(f"  Cámara abierta (picamera2): {RESOLUCION[0]}x{RESOLUCION[1]}")
-
-        def read_fn():
-            frame = picam2.capture_array()
-            return True, frame
-
-        def release_fn():
-            picam2.stop()
-
-        return read_fn, release_fn
-
-    else:
-        # Intentar primero con GStreamer + libcamerasrc (Ubuntu en Raspberry Pi)
-        gst = (
-            f"libcamerasrc ! "
-            f"video/x-raw,width={RESOLUCION[0]},height={RESOLUCION[1]},framerate=30/1 ! "
-            f"videoconvert ! video/x-raw,format=BGR ! appsink drop=1"
-        )
-        cap = cv2.VideoCapture(gst, cv2.CAP_GSTREAMER)
-        if cap.isOpened():
-            ok, _ = cap.read()
-            if ok:
-                print(f"  Cámara abierta (libcamerasrc GStreamer): {RESOLUCION[0]}x{RESOLUCION[1]}")
-            else:
-                cap.release()
-                cap = None
-        else:
-            cap = None
-
-        # Fallback a VideoCapture estándar
-        if cap is None:
-            cap = cv2.VideoCapture(VIDEO_SOURCE_FALLBACK)
-            if not cap.isOpened():
-                raise RuntimeError(
-                    f"No se puede abrir la cámara (source={VIDEO_SOURCE_FALLBACK}). "
-                    "Comprueba que la cámara está conectada y habilitada."
-                )
-            cap.set(cv2.CAP_PROP_FRAME_WIDTH, RESOLUCION[0])
-            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, RESOLUCION[1])
-            w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-            h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-            print(f"  Cámara abierta (VideoCapture): {w}x{h}")
-
-        def read_fn():
-            return cap.read()
-
-        def release_fn():
-            cap.release()
-
-        return read_fn, release_fn
-
-
-# ─── FUNCIONES ────────────────────────────────────────────────────────────────
-
-def generar_puntos_objeto():
-    """Genera los puntos 3D del tablero en el plano Z=0."""
-    objp = np.zeros((BOARD_SIZE[0] * BOARD_SIZE[1], 3), np.float32)
-    objp[:, :2] = np.mgrid[
-        0:BOARD_SIZE[0], 0:BOARD_SIZE[1]
-    ].T.reshape(-1, 2)
-    objp *= SQUARE_SIZE
-    return objp
-
-
-def capturar_imagenes(read_fn):
-    """
-    Muestra el feed de cámara y permite capturar frames con ESPACIO.
-    Devuelve listas de puntos objeto y puntos imagen.
+    Captura imágenes usando rpicam-still en lugar de streaming.
+    Retorna listas de puntos objeto y puntos imagen.
     """
     objp = generar_puntos_objeto()
     obj_points = []
     img_points = []
     img_size = None
-
-    criteria = (
-        cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER,
-        30, 0.001
-    )
-
+    
+    criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.001)
+    
+    # Crear directorio temporal para las imágenes
+    temp_dir = Path(tempfile.mkdtemp(prefix="calib_cam_"))
+    print(f"\n  Directorio temporal: {temp_dir}")
+    
     n_capturas = 0
-
+    
     print("\n" + "=" * 55)
-    print("  CALIBRACIÓN — Camera Module 3")
+    print("  CALIBRACIÓN — Camera Module 3 NoIR (con rpicam-still)")
     print("=" * 55)
     print(f"  Tablero: {BOARD_SIZE[0]}x{BOARD_SIZE[1]} esquinas interiores")
     print(f"  Tamaño cuadrado: {SQUARE_SIZE * 100:.1f} cm")
     print(f"  Resolución: {RESOLUCION[0]}x{RESOLUCION[1]}")
     print(f"  Mínimo capturas: {MIN_CAPTURAS}")
     print("=" * 55)
-    print("\n  ESPACIO = capturar  |  q = calibrar y salir\n")
-
-    win = "Calibracion - mueve el tablero"
+    print("\n  INSTRUCCIONES:")
+    print("  1. Muestra el tablero a la cámara")
+    print("  2. Presiona ESPACIO para capturar cuando el tablero sea detectado")
+    print("  3. Mueve el tablero entre capturas (diferentes ángulos/posiciones)")
+    print("  4. Presiona 'q' para calibrar y salir (mínimo 15 capturas)\n")
+    
+    # Ventana para mostrar preview
+    win = "Calibracion - Mueve el tablero y presiona ESPACIO"
     cv2.namedWindow(win, cv2.WINDOW_NORMAL)
     cv2.resizeWindow(win, 960, 540)
-
-    while True:
-        ok, frame = read_fn()
-        if not ok or frame is None:
-            print("  [ERROR] No se pudo leer frame de la cámara.")
-            break
-
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        img_size = gray.shape[::-1]  # (width, height)
-
-        found, corners = cv2.findChessboardCorners(
-            gray, BOARD_SIZE,
-            cv2.CALIB_CB_ADAPTIVE_THRESH
-            + cv2.CALIB_CB_NORMALIZE_IMAGE
-            + cv2.CALIB_CB_FAST_CHECK,
+    
+    # Crear preview con libcamera (opcional, para ver lo que capturas)
+    preview_process = None
+    try:
+        # Iniciar preview en segundo plano (sin guardar archivo)
+        import subprocess
+        preview_process = subprocess.Popen(
+            ["rpicam-vid", "--preview", "--framerate", "15", "--width", "640", "--height", "360"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL
         )
-
-        display = frame.copy()
-
-        if found:
-            corners_refined = cv2.cornerSubPix(
-                gray, corners, (11, 11), (-1, -1), criteria
+    except:
+        print("[AVISO] No se pudo iniciar preview, solo verás las imágenes capturadas")
+    
+    while True:
+        # Esperar tecla antes de capturar
+        key = cv2.waitKey(100) & 0xFF
+        
+        if key == ord(' '):
+            # Capturar imagen con rpicam-still
+            img_path = temp_dir / f"captura_{n_capturas+1:03d}.jpg"
+            
+            # Comando rpicam-still con resolución fija
+            cmd = [
+                "rpicam-still",
+                "-o", str(img_path),
+                "--width", str(RESOLUCION[0]),
+                "--height", str(RESOLUCION[1]),
+                "--nopreview",
+                "--timeout", "100"  # 100ms timeout
+            ]
+            
+            print(f"  Capturando imagen {n_capturas+1}...")
+            result = os.system(" ".join(cmd))
+            time.sleep(0.5)  # Esperar a que se escriba el archivo
+            
+            if not img_path.exists() or img_path.stat().st_size == 0:
+                print("  ❌ Error en captura, reintenta...")
+                continue
+            
+            # Leer la imagen capturada
+            frame = cv2.imread(str(img_path))
+            if frame is None:
+                print("  ❌ No se pudo leer la imagen capturada")
+                continue
+            
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            img_size = gray.shape[::-1]  # (width, height)
+            
+            # Buscar esquinas del tablero
+            found, corners = cv2.findChessboardCorners(
+                gray, BOARD_SIZE,
+                cv2.CALIB_CB_ADAPTIVE_THRESH + cv2.CALIB_CB_NORMALIZE_IMAGE
             )
-            cv2.drawChessboardCorners(display, BOARD_SIZE, corners_refined, found)
-            cv2.putText(display, "TABLERO DETECTADO - pulsa ESPACIO",
-                        (15, 35), cv2.FONT_HERSHEY_SIMPLEX, 0.7,
-                        (0, 255, 80), 2)
-        else:
-            cv2.putText(display, "Buscando tablero...",
-                        (15, 35), cv2.FONT_HERSHEY_SIMPLEX, 0.7,
-                        (0, 120, 255), 2)
-
-        color_count = (0, 255, 80) if n_capturas >= MIN_CAPTURAS else (0, 170, 255)
-        cv2.putText(display, f"Capturas: {n_capturas}/{MIN_CAPTURAS}",
-                    (15, 70), cv2.FONT_HERSHEY_SIMPLEX, 0.6,
-                    color_count, 2)
-
-        if n_capturas >= MIN_CAPTURAS:
-            cv2.putText(display, "Suficientes! Pulsa 'q' para calibrar",
-                        (15, 100), cv2.FONT_HERSHEY_SIMPLEX, 0.55,
-                        (0, 255, 200), 1)
-
-        cv2.imshow(win, display)
-        key = cv2.waitKey(1) & 0xFF
-
-        if key == ord(" ") and found:
-            obj_points.append(objp)
-            img_points.append(corners_refined)
-            n_capturas += 1
-            print(f"  Captura #{n_capturas} guardada")
-
-            flash = frame.copy()
-            cv2.rectangle(flash, (0, 0),
-                          (frame.shape[1], frame.shape[0]),
-                          (0, 255, 0), 15)
-            cv2.imshow(win, flash)
-            cv2.waitKey(150)
-
-        elif key == ord("q"):
-            if n_capturas < MIN_CAPTURAS:
-                print(f"\n  Necesitas al menos {MIN_CAPTURAS} capturas "
-                      f"(tienes {n_capturas}). Sigue capturando o pulsa "
-                      f"Ctrl+C para abortar.")
+            
+            if found:
+                corners_refined = cv2.cornerSubPix(gray, corners, (11,11), (-1,-1), criteria)
+                obj_points.append(objp)
+                img_points.append(corners_refined)
+                n_capturas += 1
+                print(f"  ✅ Captura #{n_capturas} guardada (tablero detectado)")
+                
+                # Mostrar feedback visual
+                display = frame.copy()
+                cv2.drawChessboardCorners(display, BOARD_SIZE, corners_refined, found)
+                cv2.putText(display, f"CAPTURA #{n_capturas} GUARDADA!", 
+                           (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0,255,0), 3)
+                cv2.imshow(win, display)
+                cv2.waitKey(500)
             else:
+                print(f"  ❌ Tablero no detectado en captura {n_capturas+1}, reintenta")
+                # Mostrar frame fallido
+                cv2.putText(frame, "TABLERO NO DETECTADO - Reintenta", 
+                           (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0,0,255), 2)
+                cv2.imshow(win, frame)
+                cv2.waitKey(1000)
+                continue
+                
+        elif key == ord('q'):
+            if n_capturas >= MIN_CAPTURAS:
                 break
-
-    cv2.destroyWindow(win)
+            else:
+                print(f"\n  Necesitas al menos {MIN_CAPTURAS} capturas (tienes {n_capturas})")
+                continue
+        
+        # Mostrar estado actual en ventana
+        if 'display' in locals():
+            pass  # Ya mostramos algo
+        else:
+            # Mostrar mensaje de espera
+            blank = np.zeros((480, 640, 3), dtype=np.uint8)
+            cv2.putText(blank, f"Capturas: {n_capturas}/{MIN_CAPTURAS}", 
+                       (50, 240), cv2.FONT_HERSHEY_SIMPLEX, 1, (255,255,255), 2)
+            cv2.putText(blank, "Presiona ESPACIO para capturar", 
+                       (50, 280), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200,200,200), 1)
+            cv2.putText(blank, "Presiona 'q' para calibrar", 
+                       (50, 320), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200,200,200), 1)
+            cv2.imshow(win, blank)
+    
+    # Limpiar
+    cv2.destroyAllWindows()
+    if preview_process:
+        preview_process.terminate()
+    
+    # Limpiar directorio temporal
+    shutil.rmtree(temp_dir)
+    
     return obj_points, img_points, img_size
+
+
+def generar_puntos_objeto():
+    """Genera los puntos 3D del tablero en el plano Z=0."""
+    objp = np.zeros((BOARD_SIZE[0] * BOARD_SIZE[1], 3), np.float32)
+    objp[:, :2] = np.mgrid[0:BOARD_SIZE[0], 0:BOARD_SIZE[1]].T.reshape(-1, 2)
+    objp *= SQUARE_SIZE
+    return objp
 
 
 def calibrar(obj_points, img_points, img_size):
     """Ejecuta la calibración y devuelve los parámetros."""
-    print("\n  Calibrando... (puede tardar unos segundos en la Raspberry Pi)")
-
+    print("\n  Calibrando... (puede tardar unos segundos)")
+    
     ret, camera_matrix, dist_coeffs, rvecs, tvecs = cv2.calibrateCamera(
-        obj_points, img_points, img_size, None, None,
-        flags=(
-            cv2.CALIB_FIX_K4
-            + cv2.CALIB_FIX_K5
-        ),
+        obj_points, img_points, img_size, None, None
     )
-
+    
+    # Calcular error de reproyección
     total_err = 0
     for i in range(len(obj_points)):
         proj, _ = cv2.projectPoints(
@@ -282,26 +209,26 @@ def calibrar(obj_points, img_points, img_size):
         err = cv2.norm(img_points[i], proj, cv2.NORM_L2)
         total_err += err ** 2
     mean_err = np.sqrt(total_err / (len(obj_points) * BOARD_SIZE[0] * BOARD_SIZE[1]))
-
+    
     return camera_matrix, dist_coeffs, mean_err, ret
 
 
 def guardar_calibracion(camera_matrix, dist_coeffs, mean_err, img_size):
     """Guarda la calibración en JSON."""
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-
+    
     data = {
         "calibration_date": datetime.now().isoformat(),
-        "camera_model": "Raspberry Pi Camera Module 3",
+        "camera_model": "Raspberry Pi Camera Module 3 NoIR (rpicam-still)",
         "image_size": list(img_size),
         "reprojection_error_px": round(float(mean_err), 4),
         "camera_matrix": camera_matrix.tolist(),
         "dist_coeffs": dist_coeffs.flatten().tolist(),
     }
-
+    
     with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
-
+    
     print(f"\n  Guardado en: {OUTPUT_FILE}")
 
 
@@ -310,25 +237,25 @@ def mostrar_resultados(camera_matrix, dist_coeffs, mean_err):
     fx, fy = camera_matrix[0, 0], camera_matrix[1, 1]
     cx, cy = camera_matrix[0, 2], camera_matrix[1, 2]
     d = dist_coeffs.flatten()
-
+    
     print("\n" + "=" * 55)
     print("  CALIBRACIÓN COMPLETADA")
     print("=" * 55)
     print(f"  Error de reproyección: {mean_err:.4f} px")
-    print(f"  (< 0.5 = excelente, < 1.0 = bueno, > 1.0 = repetir)")
+    print(f"  (< 0.5 = excelente, < 1.0 = bueno)")
     print("=" * 55)
-
+    
     print(f"\n  Parámetros intrínsecos:")
     print(f"    fx = {fx:.2f}")
     print(f"    fy = {fy:.2f}")
     print(f"    cx = {cx:.2f}")
     print(f"    cy = {cy:.2f}")
     print(f"    distorsión = [{', '.join(f'{v:.6f}' for v in d)}]")
-
+    
     print(f"\n  ┌─────────────────────────────────────────────────┐")
     print(f"  │  COPIA ESTO EN AppConfig de detector_3d.py:     │")
     print(f"  └─────────────────────────────────────────────────┘\n")
-
+    
     print(f"    camera_matrix: np.ndarray = field(default_factory=lambda: np.array([")
     print(f"        [{fx:10.2f}, {0:10.2f}, {cx:10.2f}],")
     print(f"        [{0:10.2f}, {fy:10.2f}, {cy:10.2f}],")
@@ -348,31 +275,26 @@ def mostrar_resultados(camera_matrix, dist_coeffs, mean_err):
 # ─── MAIN ─────────────────────────────────────────────────────────────────────
 
 def main():
-    try:
-        read_fn, release_fn = abrir_camara()
-    except RuntimeError as e:
-        print(f"\n  ERROR: {e}")
+    print("\n  Verificando rpicam-still...")
+    if os.system("rpicam-still --version") != 0:
+        print("  ERROR: rpicam-still no está instalado o no funciona.")
+        print("  Instálalo con: sudo apt install rpicam-apps")
         return
-
-    try:
-        obj_points, img_points, img_size = capturar_imagenes(read_fn)
-    finally:
-        release_fn()
-        cv2.destroyAllWindows()
-
+    
+    print("  ✅ rpicam-still disponible\n")
+    
+    obj_points, img_points, img_size = capturar_con_rpicam()
+    
     if len(obj_points) < MIN_CAPTURAS:
-        print(f"\n  Abortado: solo {len(obj_points)} capturas "
-              f"(mínimo {MIN_CAPTURAS}).")
+        print(f"\n  Abortado: solo {len(obj_points)} capturas (mínimo {MIN_CAPTURAS}).")
         return
-
-    camera_matrix, dist_coeffs, mean_err, ret = calibrar(
-        obj_points, img_points, img_size
-    )
-
+    
+    camera_matrix, dist_coeffs, mean_err, ret = calibrar(obj_points, img_points, img_size)
+    
     mostrar_resultados(camera_matrix, dist_coeffs, mean_err)
     guardar_calibracion(camera_matrix, dist_coeffs, mean_err, img_size)
-
-    print("\n  Listo. Ahora copia los valores a detector_3d.py y vuelve a probar.\n")
+    
+    print("\n  ✅ Listo. Ahora copia los valores a detector_3d.py\n")
 
 
 if __name__ == "__main__":
