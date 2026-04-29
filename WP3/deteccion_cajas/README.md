@@ -39,9 +39,7 @@ source venv/bin/activate
 
 ```bash
 pip install -e .
-pip install opencv-python torch torchvision
-pip install transformers==4.36.0
-pip install timm addict yapf pycocotools scipy
+pip install -r requirements.txt
 ```
 
 ### 4. Descargar el modelo preentrenado
