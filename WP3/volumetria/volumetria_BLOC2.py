@@ -129,52 +129,72 @@ def obtenir_color_aleatori():
             int(np.random.randint(50, 255)))
 
 def tracking_robust_amb_memoria(deteccions_actuals, distancia_lidar_cm):
+    """
+    Assignació òptima global: construïm totes les parelles possibles
+    (detecció_nova, id_conegut) ordenades per distància de menor a major,
+    i les assignem en ordre. Això garanteix que la parella més clara
+    (la Epson ja coneguda) sempre s'assigna primer, independentment de
+    l'ordre en què YOLO retorna les deteccions.
+    """
     global següent_id_caixa, caixes_actives_amb_memoria
-    
+
     id_actuals_assignats = []
     radi_tracking_dinamic = TRACKING_REF_PX * (DISTANCIA_REF_CM / distancia_lidar_cm)
-    ids_aparellats = {}
 
-    for cx_nova, cy_nova in deteccions_actuals:
-        id_conegut_mes_proper = None
-        distancia_minima = float('inf')
-        
+    ids_ja_assignats = set()      # IDs antics ja aparellats
+    deteccions_ja_assignades = set()  # Índexs de deteccions ja aparellades
+
+    # 1. Construïm la matriu de distàncies entre totes les deteccions i tots els IDs coneguts
+    parelles = []  # (distancia, idx_deteccio, id_vell)
+    for idx, (cx_nova, cy_nova) in enumerate(deteccions_actuals):
         for id_vell, info_vella in caixes_actives_amb_memoria.items():
-            if id_vell in ids_aparellats: continue 
-
             cx_antic, cy_antic = info_vella['centroide']
             dist = math.hypot(cx_nova - cx_antic, cy_nova - cy_antic)
-            
-            if dist < distancia_minima and dist < radi_tracking_dinamic:
-                distancia_minima = dist
-                id_conegut_mes_proper = id_vell
-                
-        if id_conegut_mes_proper is not None:
-            caixes_actives_amb_memoria[id_conegut_mes_proper]['centroide'] = (cx_nova, cy_nova)
-            caixes_actives_amb_memoria[id_conegut_mes_proper]['misses'] = 0 
-            
-            info = caixes_actives_amb_memoria[id_conegut_mes_proper]
-            id_actuals_assignats.append({'id': id_conegut_mes_proper, 'centroide': (cx_nova, cy_nova), 'color': info['color']})
-            ids_aparellats[id_conegut_mes_proper] = True
-        else:
-            nou_id = següent_id_caixa
-            color = obtenir_color_aleatori()
-            caixes_actives_amb_memoria[nou_id] = {'centroide': (cx_nova, cy_nova), 'misses': 0, 'color': color}
-            
-            id_actuals_assignats.append({'id': nou_id, 'centroide': (cx_nova, cy_nova), 'color': color})
-            següent_id_caixa += 1
-            ids_aparellats[nou_id] = True
+            if dist < radi_tracking_dinamic:
+                parelles.append((dist, idx, id_vell))
 
+    # 2. Ordenem per distància: les parelles més clares s'assignen primer
+    parelles.sort(key=lambda x: x[0])
+
+    # 3. Assignació greedy sobre la matriu ordenada (equivalent a l'algoritme hongrès
+    #    per a casos sense ambigüitat, però molt més simple i ràpid)
+    for dist, idx, id_vell in parelles:
+        if idx in deteccions_ja_assignades:
+            continue  # Aquesta detecció ja té ID
+        if id_vell in ids_ja_assignats:
+            continue  # Aquest ID ja té detecció
+
+        # Parella vàlida: assignem
+        cx_nova, cy_nova = deteccions_actuals[idx]
+        caixes_actives_amb_memoria[id_vell]['centroide'] = (cx_nova, cy_nova)
+        caixes_actives_amb_memoria[id_vell]['misses'] = 0
+        info = caixes_actives_amb_memoria[id_vell]
+        id_actuals_assignats.append({'id': id_vell, 'centroide': (cx_nova, cy_nova), 'color': info['color']})
+        ids_ja_assignats.add(id_vell)
+        deteccions_ja_assignades.add(idx)
+
+    # 4. Deteccions sense aparellar → ID nou
+    for idx, (cx_nova, cy_nova) in enumerate(deteccions_actuals):
+        if idx in deteccions_ja_assignades:
+            continue
+        nou_id = següent_id_caixa
+        color = obtenir_color_aleatori()
+        caixes_actives_amb_memoria[nou_id] = {'centroide': (cx_nova, cy_nova), 'misses': 0, 'color': color}
+        id_actuals_assignats.append({'id': nou_id, 'centroide': (cx_nova, cy_nova), 'color': color})
+        següent_id_caixa += 1
+        ids_ja_assignats.add(nou_id)
+
+    # 5. IDs sense detecció → incrementem misses o eliminem
     ids_a_eliminar = []
     for id_vell in caixes_actives_amb_memoria:
-        if id_vell not in ids_aparellats:
+        if id_vell not in ids_ja_assignats:
             caixes_actives_amb_memoria[id_vell]['misses'] += 1
             if caixes_actives_amb_memoria[id_vell]['misses'] > MAX_FRAMES_MISSING:
                 ids_a_eliminar.append(id_vell)
-                
+
     for i_d in ids_a_eliminar:
         del caixes_actives_amb_memoria[i_d]
-        
+
     return id_actuals_assignats
 
 def extreure_ids_i_posicions(img, detector, segmentador, distancia_lidar_cm):

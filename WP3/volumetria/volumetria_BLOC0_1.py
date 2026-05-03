@@ -6,6 +6,7 @@ import threading
 import numpy as np
 from ultralytics import YOLO, SAM
 from pyzbar.pyzbar import decode
+from detecció_qr_codi.detect_CB import detectar_codis_mixtos
 
 # Importem les eines dels nostres mòduls
 from volumetria_BLOC2 import extreure_ids_i_posicions
@@ -25,7 +26,7 @@ MANIFEST_CSV = "etiquetes_magatzem_simulades_manifest.csv"
 # ==========================================
 # CONFIGURACIÓ DE CAPTURA DE VÍDEO
 # ==========================================
-GRAVAR_NOU_VIDEO = True        
+GRAVAR_NOU_VIDEO = False        
 FONT_VIDEO = "tcp://172.20.10.2:8888"                 
 INTERVAL_CAPTURA_SEG = 1.0      
 # ==========================================
@@ -87,17 +88,72 @@ def carregar_manifest(path_csv):
 
     return estanteries_valides, sscc_a_producte
 
-def extreure_codis_imatge(img, sscc_a_producte):
-    codis = decode(img)
+def extreure_codis_imatge(img, sscc_a_producte, caixes_frame=None):
+    """
+    Detecta codis de barres aprofitant les ROIs de les caixes segmentades.
+    Estratègia per cada caixa:
+      1. Passada ràpida sobre la imatge completa (si la càmera és a prop)
+      2. Crop del bbox de cada caixa escalat x4 amb INTER_LANCZOS4
+         (màxima qualitat per barcodes petits a distància)
+      3. Usa detectar_codis_mixtos() de detect_CB, que ja incorpora
+         múltiples preprocessats robustos (equalització, Otsu, adaptativa)
+    Les coordenades retornades sempre són en espai de la imatge original.
+    """
+    ESCALA_CROP = 4  # x4 és el punt òptim per barcodes a ~150cm
+
     resultats = []
-    for codi in codis:
-        rect = codi.rect
-        cx = rect.left + rect.width / 2
-        cy = rect.top + rect.height / 2
-        dades_crues = codi.data.decode('utf-8')
-        dades_netes = netejar_text_codi(dades_crues)
-        nom_etiqueta = sscc_a_producte.get(dades_netes, dades_netes)
-        resultats.append({'data': nom_etiqueta, 'codi_cru': dades_netes, 'cx': cx, 'cy': cy, 'rect': rect})
+    codis_crus_vistos = set()
+
+    def _registrar_deteccions(deteccions, offset_x=0, offset_y=0, escala=1.0):
+        """Converteix deteccions de detect_CB al format intern de BLOC0."""
+        for det in deteccions:
+            dades_netes = netejar_text_codi(det['text'])
+            if dades_netes in codis_crus_vistos:
+                continue
+            codis_crus_vistos.add(dades_netes)
+            nom_etiqueta = sscc_a_producte.get(dades_netes, dades_netes)
+            # Coordenades en espai de la imatge original
+            cx = offset_x + det['cx'] / escala
+            cy = offset_y + det['cy'] / escala
+            resultats.append({
+                'data':     nom_etiqueta,
+                'codi_cru': dades_netes,
+                'cx':       cx,
+                'cy':       cy,
+                # Rect sintètic en coordenades originals per dibuixar
+                'offset_x': offset_x,
+                'offset_y': offset_y,
+                'escala':   escala,
+                'det_x':    det['x'],
+                'det_y':    det['y'],
+                'det_w':    det['w'],
+                'det_h':    det['h'],
+            })
+
+    # --- Passada 1: imatge completa (detecció ràpida si la càmera és a prop) ---
+    _registrar_deteccions(detectar_codis_mixtos(img))
+
+    # --- Passada 2: crop ampliat per cada caixa segmentada ---
+    if caixes_frame:
+        H, W = img.shape[:2]
+        for caixa in caixes_frame:
+            bbox = caixa['bbox']
+            x1 = max(0, int(bbox[0]))
+            y1 = max(0, int(bbox[1]))
+            x2 = min(W, int(bbox[2]))
+            y2 = min(H, int(bbox[3]))
+            if x2 <= x1 or y2 <= y1:
+                continue
+
+            crop = img[y1:y2, x1:x2]
+            # LANCZOS4: millor interpolació per ampliar imatges amb textures fines
+            crop_gran = cv2.resize(crop, None,
+                                   fx=ESCALA_CROP, fy=ESCALA_CROP,
+                                   interpolation=cv2.INTER_LANCZOS4)
+
+            dets = detectar_codis_mixtos(crop_gran)
+            _registrar_deteccions(dets, offset_x=x1, offset_y=y1, escala=float(ESCALA_CROP))
+
     return resultats
 
 def capturar_frames_de_video(carpeta_desti, font_video, interval_seg):
@@ -169,15 +225,10 @@ def executar_pipeline_orquestrat():
         H, W = img.shape[:2]
         img_visual = img.copy() 
         
-        codis_al_frame = extreure_codis_imatge(img, sscc_productes)
+        # Detectem caixes primer, després passem les ROIs completes per la lectura de codis
         caixes_frame = extreure_ids_i_posicions(img, detector, segmentador, DISTANCIA_LIDAR_CM)
+        codis_al_frame = extreure_codis_imatge(img, sscc_productes, caixes_frame=caixes_frame)
         
-        # --- NOU: CALCULEM LA PROFUNDITAT DE CADA CAIXA ---
-        # Busquem la Y màxima de cada contorn (el punt més baix de la caixa a la foto)
-        for c in caixes_frame:
-            # contorn té forma (N, 2) on [:, 1] són totes les Y
-            c['y_max'] = np.max(c['contorn'][:, 1])
-
         for caixa in caixes_frame:
             id_actual = caixa['id']
             bbox_actual = caixa['bbox']
@@ -191,9 +242,17 @@ def executar_pipeline_orquestrat():
                     if id_actual not in dades_codis:
                         dades_codis[id_actual] = set()
                     dades_codis[id_actual].add(codi['data'])
-                    rect = codi['rect']
-                    cv2.rectangle(img_visual, (rect.left, rect.top), (rect.left + rect.width, rect.top + rect.height), (255, 0, 255), 3)
-                    cv2.putText(img_visual, codi['data'], (rect.left, rect.top - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 0, 255), 3)
+                    # Coordenades del rectangle en espai de la imatge original
+                    ox  = codi.get('offset_x', 0)
+                    oy  = codi.get('offset_y', 0)
+                    esc = codi.get('escala', 1.0)
+                    rx1 = int(ox + codi.get('det_x', 0) / esc)
+                    ry1 = int(oy + codi.get('det_y', 0) / esc)
+                    rx2 = int(rx1 + codi.get('det_w', 50) / esc)
+                    ry2 = int(ry1 + codi.get('det_h', 20) / esc)
+                    cv2.rectangle(img_visual, (rx1, ry1), (rx2, ry2), (255, 0, 255), 3)
+                    cv2.putText(img_visual, codi['data'], (rx1, ry1 - 10),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 0, 255), 3)
 
             # Pintar màscares
             mascara_binaria = np.zeros((img.shape[0], img.shape[1]), dtype=np.uint8)
@@ -212,49 +271,27 @@ def executar_pipeline_orquestrat():
             vertexs = detectar_qualsevol_caixa(ruta_o_img=img, mostrar_visualment=False, bbox_objectiu=bbox_actual, segmentador=segmentador, detector=detector)
             
             toca_borde = False
-            esta_oclusa = False # Nova bandera per detectar superposicions
 
             if vertexs is not None:
                 for (vx, vy) in vertexs:
-                    # 1. Comprovem si l'esquina toca els marges de la foto
                     if vx <= MARGE_BORDE_VALIDACIO or vx >= (W - MARGE_BORDE_VALIDACIO) or \
                        vy <= MARGE_BORDE_VALIDACIO or vy >= (H - MARGE_BORDE_VALIDACIO):
                         toca_borde = True
-                    
-                    # 2. NOVA LÒGICA: Comprovem si l'esquina xoca amb una caixa del davant
-                    for altra_caixa in caixes_frame:
-                        if altra_caixa['id'] == id_actual: 
-                            continue # No es compara amb ella mateixa
-                            
-                        # L'altra caixa ens tapa si el seu punt més baix està més a prop de la càmera
-                        if altra_caixa['y_max'] > caixa['y_max']:
-                            # Mirem quina distància hi ha entre la nostra esquina i la màscara de l'altra caixa
-                            dist_colisio = cv2.pointPolygonTest(altra_caixa['contorn'], (float(vx), float(vy)), True)
-                            
-                            # Si la distància és positiva (està a dins) o està a prop (ex: a menys de 20 píxels)
-                            if dist_colisio >= -20: 
-                                esta_oclusa = True
-                                break # Ja hem confirmat que aquesta caixa està oclusa, deixem de buscar
-                    
-                    if esta_oclusa:
                         break
 
             if vertexs is not None and len(vertexs) >= 4:
                 vertexs_dibuix = np.array(vertexs, dtype=np.int32).reshape((-1, 1, 2))
-                
-                # Només guardem les dades pures si no toca el límit i NO hi ha oclusió
-                if not toca_borde and not esta_oclusa:
+
+                if not toca_borde:
                     if id_actual not in dades_caixes:
                         dades_caixes[id_actual] = {}
                     dades_caixes[id_actual][nom_arxiu] = vertexs
-                    cv2.drawContours(img_visual, [vertexs_dibuix], -1, (0, 255, 0), 3) 
+                    cv2.drawContours(img_visual, [vertexs_dibuix], -1, (0, 255, 0), 3)
                     for i, (x, y) in enumerate(vertexs):
-                        cv2.circle(img_visual, (x, y), 8, (0, 0, 255), -1) 
+                        cv2.circle(img_visual, (x, y), 8, (0, 0, 255), -1)
                 else:
-                    # Si toca el marge o si està tapada per una altra caixa, marquem com OCLUSA/PARCIAL
-                    cv2.drawContours(img_visual, [vertexs_dibuix], -1, (0, 0, 255), 3) 
-                    text_error = "OCLUSA" if esta_oclusa else "PARCIAL"
-                    cv2.putText(img_visual, text_error, (cx - 40, cy + 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
+                    cv2.drawContours(img_visual, [vertexs_dibuix], -1, (0, 0, 255), 3)
+                    cv2.putText(img_visual, "PARCIAL", (cx - 40, cy + 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
 
         cv2.imwrite(os.path.join(CARPETA_RESULTATS, nom_arxiu), img_visual)
 

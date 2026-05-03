@@ -59,10 +59,36 @@ def detectar_qualsevol_caixa(ruta_o_img, mostrar_visualment=False, bbox_objectiu
     mascara_binaria = np.zeros((img.shape[0], img.shape[1]), dtype=np.uint8)
     cv2.fillPoly(mascara_binaria, [np.array(contorn_sam, dtype=np.int32)], 255)
 
-    # Millora de màscara
-    kernel = np.ones((20, 20), np.uint8)
-    mascara_binaria = cv2.morphologyEx(mascara_binaria, cv2.MORPH_CLOSE, kernel)
-    mascara_binaria = cv2.dilate(mascara_binaria, kernel, iterations=1)
+    # --- FIX 1: Quedem-nos només amb el component connectat més gran ---
+    # Elimina artefactes i illes desconnectades del cos principal
+    num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(mascara_binaria, connectivity=8)
+    if num_labels > 1:
+        areas = stats[1:, cv2.CC_STAT_AREA]
+        idx_mes_gran = int(np.argmax(areas)) + 1
+        mascara_binaria = np.where(labels == idx_mes_gran, 255, 0).astype(np.uint8)
+
+    # --- FIX 2: Erosió per trencar filaments fins CONNECTATS al cos principal ---
+    # Un filament fi (5-8px d'amplada) no sobreviu una erosió de radi 8,
+    # però el cos principal (centenars de px) el recupera el CLOSE posterior.
+    kernel_erode = np.ones((8, 8), np.uint8)
+    mascara_binaria = cv2.erode(mascara_binaria, kernel_erode, iterations=1)
+
+    # --- FIX 3: CLOSE amb kernel horitzontal allargat per tancar el buit de l'etiqueta ---
+    # Un kernel molt ample tanca el gap horitzontal entre el cartró i la full de paper
+    # sense expandir excessivament en vertical (cosa que afegiria la taula)
+    kernel_close_h = cv2.getStructuringElement(cv2.MORPH_RECT, (60, 20))
+    mascara_binaria = cv2.morphologyEx(mascara_binaria, cv2.MORPH_CLOSE, kernel_close_h)
+
+    # --- FIX 4: Retallar la màscara pel límit inferior del bbox de YOLO ---
+    # Evita que la sombra/reflexe de la caixa sobre la taula s'inclogui a la màscara.
+    # Marge generós (40px) per no tallar la cantonada inferior real de la caixa.
+    MARGE_BBOX_INFERIOR = 40
+    y_limit = min(img.shape[0], int(box_ampliada[3]) + MARGE_BBOX_INFERIOR)
+    mascara_binaria[y_limit:, :] = 0
+
+    # Dilate final reduït: reconstitueix el contorn sense re-expandir cap a la taula
+    kernel_dilate = np.ones((10, 10), np.uint8)
+    mascara_binaria = cv2.dilate(mascara_binaria, kernel_dilate, iterations=1)
 
     # 3. Obtenció de vèrtexs bruts
     contorns, _ = cv2.findContours(mascara_binaria, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
