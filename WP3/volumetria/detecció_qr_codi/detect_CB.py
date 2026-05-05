@@ -18,7 +18,7 @@ FONT_VIDEO = 0
 DEBUG = False
 # True: torna a gravar i substitueix les imatges de la carpeta CB_in.
 # False: no obre la càmera i analitza les imatges ja existents a CB_in.
-REGRAVAR_IMATGES = True
+REGRAVAR_IMATGES = False
 PROCESSAR_CADA_N_FRAMES = 1
 INTERVAL_GUARDAT_SEGONS = 0.5
 ESCALA_DETECCIO_RAPIDA = 0.75
@@ -752,9 +752,30 @@ def processar_fotogrames_guardats(
     estat_inventari = crear_estat_inventari(estanteries_valides, sscc_a_producte)
 
     for index_frame, image_path in enumerate(fotogrames_guardats, start=1):
-        frame = cv2.imread(image_path)
-        if frame is None:
-            print(f"Avís: no s'ha pogut llegir {image_path}")
+        # Usar imdecode para evitar problemas de encoding Unicode en Windows
+        if not os.path.exists(image_path):
+            print(f"Avís: el archivo no existe: {image_path}")
+            continue
+        
+        try:
+            file_size = os.path.getsize(image_path)
+            if file_size == 0:
+                print(f"Avís: el archivo está vacío: {image_path}")
+                continue
+        except OSError as e:
+            print(f"Avís: error al acceder al archivo {image_path}: {e}")
+            continue
+        
+        # Leer archivo en bytes y decodificar con imdecode (funciona mejor con Unicode en Windows)
+        try:
+            with open(image_path, 'rb') as f:
+                data = np.frombuffer(f.read(), np.uint8)
+            frame = cv2.imdecode(data, cv2.IMREAD_COLOR)
+            if frame is None:
+                print(f"Avís: no s'ha pogut llegir {image_path} (format inválid o corrompido)")
+                continue
+        except Exception as e:
+            print(f"Avís: error en lectura de {image_path}: {e}")
             continue
 
         if index_frame % max(PROCESSAR_CADA_N_FRAMES, 1) != 0:
@@ -771,11 +792,16 @@ def processar_fotogrames_guardats(
         nom_sortida = os.path.basename(image_path)
         image_path_sortida = os.path.join(sortida_dir, nom_sortida)
 
-        cv2.imwrite(
-            image_path_sortida,
-            frame_processat,
-            [cv2.IMWRITE_JPEG_QUALITY, QUALITAT_JPEG],
-        )
+        # Usar imencode + open() para evitar problemas de encoding Unicode en Windows
+        try:
+            success, buffer = cv2.imencode('.jpg', frame_processat, [cv2.IMWRITE_JPEG_QUALITY, QUALITAT_JPEG])
+            if success:
+                with open(image_path_sortida, 'wb') as f:
+                    f.write(buffer)
+            else:
+                print(f"Avís: no s'ha pogut processar {nom_sortida}")
+        except Exception as e:
+            print(f"Avís: error en guardat de {nom_sortida}: {e}")
 
     print("Postprocesado finalizado.")
     print(f"Imatges processades guardades a: {sortida_dir}")

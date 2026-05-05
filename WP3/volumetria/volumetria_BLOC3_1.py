@@ -153,15 +153,14 @@ def calcular_volumetria(ruta_carpeta, diccionari_punts):
 
     # La profunditat sempre ve de les fotos en perspectiva (corregides per l'escorç)
     prof_final = statistics.median(resultats_profunditat_persp)
-    
+
     volum_final = amp_final * prof_final * alc_final
-    
-    print("\n==========================================")
-    print(f" RESULTATS FINALS DRON (Frontals: {len(resultats_amplada_frontal)}, Perspectiva: {len(resultats_profunditat_persp)})")
-    print("==========================================")
-    print(f"Amplada (Frontal):    {amp_final:.1f} cm")
-    print(f"Profunditat (Lateral):{prof_final:.1f} cm")
-    print(f"Alçada estimada:      {alc_final:.1f} cm")
-    print("------------------------------------------")
-    print(f"VOLUM TOTAL:          {volum_final:.2f} cm³")
-    print("==========================================")
+
+    return {
+        'amplada_cm':     round(amp_final,   1),
+        'profunditat_cm': round(prof_final,  1),
+        'alcada_cm':      round(alc_final,   1),
+        'volum_cm3':      round(volum_final, 2),
+        'n_frontals':     len(resultats_amplada_frontal),
+        'n_perspectiva':  len(resultats_profunditat_persp),
+    }

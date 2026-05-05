@@ -5,8 +5,9 @@ import csv
 import threading
 import numpy as np
 from ultralytics import YOLO, SAM
-from pyzbar.pyzbar import decode
-from detecció_qr_codi.detect_CB import detectar_codis_mixtos
+
+# Lector de codis de barres simple (CODE39 + CODE128)
+from lector_codis_barres import detectar_codis
 
 # Importem les eines dels nostres mòduls
 from volumetria_BLOC2 import extreure_ids_i_posicions
@@ -16,17 +17,18 @@ from volumetria_BLOC3_1 import calcular_volumetria
 # ==========================================
 # CONFIGURACIÓ GENERAL
 # ==========================================
-CARPETA_FOTOS = "fotos_capturades" 
+CARPETA_FOTOS = "fotos_capturades"
 DISTANCIA_LIDAR_CM = 120.0
 CARPETA_RESULTATS = "Resultats_BLOC0"
-MARGE_BORDE_VALIDACIO = 10 
+MARGE_BORDE_VALIDACIO = 10
 
-MANIFEST_CSV = "etiquetes_magatzem_simulades_manifest.csv"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+MANIFEST_CSV = os.path.join(BASE_DIR, "etiquetes_magatzem_simulades_manifest.csv")
 
 # ==========================================
 # CONFIGURACIÓ DE CAPTURA DE VÍDEO
 # ==========================================
-GRAVAR_NOU_VIDEO = True        
+GRAVAR_NOU_VIDEO = False        
 FONT_VIDEO = "tcp://172.20.10.2:8888"                 
 INTERVAL_CAPTURA_SEG = 1.0      
 # ==========================================
@@ -70,9 +72,9 @@ def netejar_text_codi(text):
 def carregar_manifest(path_csv):
     estanteries_valides = set()
     sscc_a_producte = {}
-    
+
     if not os.path.exists(path_csv):
-        return estanteries_valides, sscc_a_producte
+        raise FileNotFoundError(f"No s'ha trobat el manifest a: {path_csv}")
 
     with open(path_csv, newline="", encoding="utf-8") as fitxer:
         reader = csv.DictReader(fitxer)
@@ -90,71 +92,74 @@ def carregar_manifest(path_csv):
 
 def extreure_codis_imatge(img, sscc_a_producte, caixes_frame=None):
     """
-    Detecta codis de barres aprofitant les ROIs de les caixes segmentades.
-    Estratègia per cada caixa:
-      1. Passada ràpida sobre la imatge completa (si la càmera és a prop)
-      2. Crop del bbox de cada caixa escalat x4 amb INTER_LANCZOS4
-         (màxima qualitat per barcodes petits a distància)
-      3. Usa detectar_codis_mixtos() de detect_CB, que ja incorpora
-         múltiples preprocessats robustos (equalització, Otsu, adaptativa)
-    Les coordenades retornades sempre són en espai de la imatge original.
+    Detecta tots els codis CODE39 i CODE128 d'un frame.
+
+    Estrategia:
+      1. Passada sobre el frame complet a escales x1 i x2.
+         - x1: codis grans/propers (productes a la caixa).
+         - x2: codis petits o llunyans (estanteries al fons).
+      2. Per cada caixa segmentada, crop ampliat x4 per llegir
+         codis molt petits sobre la caixa.
+
+    Retorna llista de codis amb format:
+        {
+          'tipus':    'CODE39' | 'CODE128',
+          'text':     contingut net del codi,
+          'producte': nom del producte si esta al manifest, sino igual a text,
+          'bbox':     (x1, y1, x2, y2)  en coordenades originals,
+          'cx', 'cy': centre del codi en coordenades originals,
+        }
+    Deduplicat per (tipus, text).
     """
-    ESCALA_CROP = 4  # x4 és el punt òptim per barcodes a ~150cm
+    ESCALA_CROP = 4.0
 
-    resultats = []
-    codis_crus_vistos = set()
+    deteccions = []
+    vistos = set()
 
-    def _registrar_deteccions(deteccions, offset_x=0, offset_y=0, escala=1.0):
-        """Converteix deteccions de detect_CB al format intern de BLOC0."""
-        for det in deteccions:
-            dades_netes = netejar_text_codi(det['text'])
-            if dades_netes in codis_crus_vistos:
+    def _afegir(dets, offset_x=0, offset_y=0, factor_crop=1.0):
+        for d in dets:
+            clau = (d["tipus"], d["text"])
+            if clau in vistos:
                 continue
-            codis_crus_vistos.add(dades_netes)
-            nom_etiqueta = sscc_a_producte.get(dades_netes, dades_netes)
-            # Coordenades en espai de la imatge original
-            cx = offset_x + det['cx'] / escala
-            cy = offset_y + det['cy'] / escala
-            resultats.append({
-                'data':     nom_etiqueta,
-                'codi_cru': dades_netes,
-                'cx':       cx,
-                'cy':       cy,
-                # Rect sintètic en coordenades originals per dibuixar
-                'offset_x': offset_x,
-                'offset_y': offset_y,
-                'escala':   escala,
-                'det_x':    det['x'],
-                'det_y':    det['y'],
-                'det_w':    det['w'],
-                'det_h':    det['h'],
+            vistos.add(clau)
+            x1, y1, x2, y2 = d["bbox"]
+            # Si el crop estava escalat, tornem al espai del crop original
+            if factor_crop != 1.0:
+                x1, y1, x2, y2 = (int(x1 / factor_crop), int(y1 / factor_crop),
+                                  int(x2 / factor_crop), int(y2 / factor_crop))
+            # Mou al espai del frame complet
+            x1 += offset_x; x2 += offset_x
+            y1 += offset_y; y2 += offset_y
+            deteccions.append({
+                "tipus":    d["tipus"],
+                "text":     d["text"],
+                "producte": sscc_a_producte.get(d["text"], d["text"]),
+                "bbox":     (x1, y1, x2, y2),
+                "cx":       (x1 + x2) // 2,
+                "cy":       (y1 + y2) // 2,
             })
 
-    # --- Passada 1: imatge completa (detecció ràpida si la càmera és a prop) ---
-    _registrar_deteccions(detectar_codis_mixtos(img))
+    # 1. Frame complet a x1 i x2 (la x2 captura les estanteries llunyanes)
+    _afegir(detectar_codis(img, escales=(1.0, 2.0)))
 
-    # --- Passada 2: crop ampliat per cada caixa segmentada ---
+    # 2. Crop ampliat de cada caixa per codis molt petits
     if caixes_frame:
         H, W = img.shape[:2]
         for caixa in caixes_frame:
-            bbox = caixa['bbox']
+            bbox = caixa["bbox"]
             x1 = max(0, int(bbox[0]))
             y1 = max(0, int(bbox[1]))
             x2 = min(W, int(bbox[2]))
             y2 = min(H, int(bbox[3]))
             if x2 <= x1 or y2 <= y1:
                 continue
-
             crop = img[y1:y2, x1:x2]
-            # LANCZOS4: millor interpolació per ampliar imatges amb textures fines
-            crop_gran = cv2.resize(crop, None,
-                                   fx=ESCALA_CROP, fy=ESCALA_CROP,
+            crop_gran = cv2.resize(crop, None, fx=ESCALA_CROP, fy=ESCALA_CROP,
                                    interpolation=cv2.INTER_LANCZOS4)
+            _afegir(detectar_codis(crop_gran, escales=(1.0,)),
+                    offset_x=x1, offset_y=y1, factor_crop=ESCALA_CROP)
 
-            dets = detectar_codis_mixtos(crop_gran)
-            _registrar_deteccions(dets, offset_x=x1, offset_y=y1, escala=float(ESCALA_CROP))
-
-    return resultats
+    return deteccions
 
 def capturar_frames_de_video(carpeta_desti, font_video, interval_seg):
     os.makedirs(carpeta_desti, exist_ok=True)
@@ -200,6 +205,7 @@ def executar_pipeline_orquestrat():
     print(f"\n=== INICIANT ORQUESTRADOR CENTRAL (AMB DETECCIÓ D'OCLUSIONS) ===")
     
     estanteries, sscc_productes = carregar_manifest(MANIFEST_CSV)
+    print(f"Manifest carregat: {len(estanteries)} estanteries, {len(sscc_productes)} SSCC.")
 
     if GRAVAR_NOU_VIDEO:
         if not capturar_frames_de_video(CARPETA_FOTOS, FONT_VIDEO, INTERVAL_CAPTURA_SEG): return
@@ -217,7 +223,8 @@ def executar_pipeline_orquestrat():
     if not arxius: return
 
     dades_caixes = {}
-    dades_codis = {} 
+    dades_codis = {}
+    dades_estanteries = set()  # Codis de barres de tipus 'shelf' detectats als frames 
 
     for nom_arxiu in arxius:
         ruta_completa = os.path.join(CARPETA_FOTOS, nom_arxiu)
@@ -228,30 +235,41 @@ def executar_pipeline_orquestrat():
         # Detectem caixes primer, després passem les ROIs completes per la lectura de codis
         caixes_frame = extreure_ids_i_posicions(img, detector, segmentador, DISTANCIA_LIDAR_CM)
         codis_al_frame = extreure_codis_imatge(img, sscc_productes, caixes_frame=caixes_frame)
-        
+
+        # Logica caixa-codi:
+        #   - CODE39 amb text al manifest d'estanteries -> codi d'estanteria
+        #   - Resta (CODE128, etc.) -> codi de producte, s'assigna a la caixa
+        #     que conté el centre del codi.
+        for codi in codis_al_frame:
+            if codi['tipus'] == 'CODE39' and codi['text'] in estanteries:
+                dades_estanteries.add(codi['text'])
+                # Dibuixem l'estanteria en groc per distingir-la dels productes
+                x1, y1, x2, y2 = codi['bbox']
+                cv2.rectangle(img_visual, (x1, y1), (x2, y2), (0, 255, 255), 3)
+                cv2.putText(img_visual, f"EST: {codi['text']}", (x1, max(20, y1 - 10)),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
+
         for caixa in caixes_frame:
             id_actual = caixa['id']
             bbox_actual = caixa['bbox']
             color = caixa['color']
             contorn = caixa['contorn']
             cx, cy = caixa['cx'], caixa['cy']
-            
+
             for codi in codis_al_frame:
-                distancia = cv2.pointPolygonTest(contorn, (float(codi['cx']), float(codi['cy'])), False)
+                # Saltem els codis d'estanteria: ja s'han processat a sobre
+                if codi['tipus'] == 'CODE39' and codi['text'] in estanteries:
+                    continue
+                # Comprovem si el centre del codi cau dins el contorn de la caixa
+                distancia = cv2.pointPolygonTest(contorn,
+                                                 (float(codi['cx']), float(codi['cy'])),
+                                                 False)
                 if distancia >= 0:
-                    if id_actual not in dades_codis:
-                        dades_codis[id_actual] = set()
-                    dades_codis[id_actual].add(codi['data'])
-                    # Coordenades del rectangle en espai de la imatge original
-                    ox  = codi.get('offset_x', 0)
-                    oy  = codi.get('offset_y', 0)
-                    esc = codi.get('escala', 1.0)
-                    rx1 = int(ox + codi.get('det_x', 0) / esc)
-                    ry1 = int(oy + codi.get('det_y', 0) / esc)
-                    rx2 = int(rx1 + codi.get('det_w', 50) / esc)
-                    ry2 = int(ry1 + codi.get('det_h', 20) / esc)
-                    cv2.rectangle(img_visual, (rx1, ry1), (rx2, ry2), (255, 0, 255), 3)
-                    cv2.putText(img_visual, codi['data'], (rx1, ry1 - 10),
+                    dades_codis.setdefault(id_actual, set()).add(codi['producte'])
+                    # Dibuixem el codi de producte en magenta
+                    x1, y1, x2, y2 = codi['bbox']
+                    cv2.rectangle(img_visual, (x1, y1), (x2, y2), (255, 0, 255), 3)
+                    cv2.putText(img_visual, codi['producte'], (x1, max(20, y1 - 10)),
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 0, 255), 3)
 
             # Pintar màscares
@@ -287,7 +305,7 @@ def executar_pipeline_orquestrat():
                         dades_caixes[id_actual] = {}
                     dades_caixes[id_actual][nom_arxiu] = vertexs
                     cv2.drawContours(img_visual, [vertexs_dibuix], -1, (0, 255, 0), 3)
-                    for i, (x, y) in enumerate(vertexs):
+                    for (x, y) in vertexs:
                         cv2.circle(img_visual, (x, y), 8, (0, 0, 255), -1)
                 else:
                     cv2.drawContours(img_visual, [vertexs_dibuix], -1, (0, 0, 255), 3)
@@ -296,24 +314,43 @@ def executar_pipeline_orquestrat():
         cv2.imwrite(os.path.join(CARPETA_RESULTATS, nom_arxiu), img_visual)
 
     print(f"\n=== EXTRACCIÓ COMPLETADA ===")
-    
+
+    # Estanteria detectada als frames (pot ser buida si no s'ha llegit cap codi)
+    if dades_estanteries:
+        text_estanteria = " | ".join(sorted(dades_estanteries))
+    else:
+        text_estanteria = "[NO DETECTADA]"
+
     for id_caixa, diccionari_fotos in dades_caixes.items():
         print(f"\n==========================================")
         print(f" RESULTATS DE LA CAIXA [ID {id_caixa}]")
-        
+
+        # Producte
         codis_associats = dades_codis.get(id_caixa, set())
-        if codis_associats:
-            text_codis = " | ".join(codis_associats)
-            print(f" > Codi / Producte: {text_codis}")
-        else:
-            print(f" > Codi / Producte: [NO DETECTAT]")
-            
+        text_codis = " | ".join(sorted(codis_associats)) if codis_associats else "[NO DETECTAT]"
+        print(f" > Codi / Producte:   {text_codis}")
+
+        # Estanteria
+        print(f" > Codi / Estanteria: {text_estanteria}")
+
         print(f"==========================================")
-        
-        if len(diccionari_fotos) > 1: 
-            calcular_volumetria(CARPETA_FOTOS, diccionari_fotos) 
+
+        if len(diccionari_fotos) > 1:
+            res = calcular_volumetria(CARPETA_FOTOS, diccionari_fotos)
+            if res:
+                origen = "Frontals" if res['n_frontals'] > 0 else "Perspectiva"
+                print(f"\n  [{origen}: {res['n_frontals']} frontals, {res['n_perspectiva']} perspectiva]")
+                print(f"  Amplada (Frontal):     {res['amplada_cm']:.1f} cm")
+                print(f"  Profunditat (Lateral): {res['profunditat_cm']:.1f} cm")
+                print(f"  Alçada estimada:       {res['alcada_cm']:.1f} cm")
+                print(f"  ------------------------------------------")
+                print(f"  VOLUM TOTAL:           {res['volum_cm3']:.2f} cm³")
+            else:
+                print(f"  No s'ha pogut calcular el volum (falten fotos en perspectiva).")
         else:
-            print(f"Sense prous fotogrames nets per a la caixa {id_caixa} (Oclusa o no detectada).")
+            print(f"  Sense prous fotogrames nets per a la caixa {id_caixa}.")
+
+        print(f"==========================================")
 
 if __name__ == "__main__":
     executar_pipeline_orquestrat()

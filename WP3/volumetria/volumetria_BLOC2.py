@@ -117,7 +117,7 @@ def aplicar_filtres(boxes, scores, img_shape):
 
 DISTANCIA_REF_CM = 150.0
 TRACKING_REF_PX = 400.0 
-MAX_FRAMES_MISSING = 1
+MAX_FRAMES_MISSING = 3 #1 (estic fent proves)
 # ==========================================
 
 següent_id_caixa = 1
