@@ -14,7 +14,10 @@ Uso:
 Opcionalmente puedes indicar la posición real conocida para calcular
 el error absoluto (si la has medido con cinta métrica).
 
-Dependencias (Raspberry Pi OS):
+Dependencias (Ubuntu / venv):
+  python3 -m pip install numpy opencv-contrib-python
+
+Opcional en Raspberry Pi OS:
   sudo apt install -y python3-picamera2 python3-opencv python3-numpy
 """
 
@@ -24,24 +27,36 @@ import json
 import time
 import csv
 import os
+import importlib
 from pathlib import Path
 from datetime import datetime
 
 # ─── INTENTO DE IMPORTAR picamera2 ────────────────────────────────────────────
-try:
-    from picamera2 import Picamera2
-    USAR_PICAMERA2 = True
-except ImportError:
-    USAR_PICAMERA2 = False
+def cargar_picamera2():
+    """
+    Importa picamera2 de forma dinámica para evitar avisos del editor
+    en sistemas donde el módulo no existe, como Windows.
+    """
+    try:
+        module = importlib.import_module("picamera2")
+        return module.Picamera2, True
+    except ImportError:
+        return None, False
+
+
+Picamera2, USAR_PICAMERA2 = cargar_picamera2()
 
 
 # ─── CONFIGURACIÓN ────────────────────────────────────────────────────────────
 
 DURACION_S = 10          # segundos de grabación
-VIDEO_SOURCE = 0         # solo se usa si picamera2 NO está disponible
+VIDEO_SOURCE = 0         # en Ubuntu suele ser 0 o "/dev/video0"
 RESOLUCION = (1280, 720)
 CONFIG_PATH = "config/markers_3d.json"
 OUTPUT_DIR = "mediciones"
+PREFERIR_PICAMERA2 = False   # en Ubuntu normal, deja esto en False
+CAMERA_BACKEND = cv2.CAP_V4L2  # recomendado en Linux/Ubuntu
+MOSTRAR_PREVIEW = True       # ponlo en False si ejecutas por SSH o sin GUI
 
 # Posición real conocida (metros). Pon None si no la sabes.
 # Si la conoces (medida con cinta métrica), rellénala para obtener error absoluto.
@@ -71,11 +86,11 @@ MAX_REPROJECTION_PX = 8.0
 
 def abrir_camara():
     """
-    Abre la Camera Module 2 NoIR via picamera2.
-    Si no está disponible, fallback a cv2.VideoCapture.
+    Abre la cámara con picamera2 si se ha pedido explícitamente.
+    En Ubuntu normal usa cv2.VideoCapture.
     Devuelve (read_fn, release_fn) donde read_fn() -> (ok, frame_BGR).
     """
-    if USAR_PICAMERA2:
+    if PREFERIR_PICAMERA2 and USAR_PICAMERA2:
         picam2 = Picamera2()
         config = picam2.create_video_configuration(
             main={"format": "BGR888", "size": RESOLUCION}
@@ -94,11 +109,16 @@ def abrir_camara():
         return read_fn, release_fn
 
     else:
-        cap = cv2.VideoCapture(VIDEO_SOURCE)
+        cap = cv2.VideoCapture(VIDEO_SOURCE, CAMERA_BACKEND)
+        if not cap.isOpened():
+            cap.release()
+            cap = cv2.VideoCapture(VIDEO_SOURCE)
+
         if not cap.isOpened():
             raise RuntimeError(
                 f"No se puede abrir la cámara (source={VIDEO_SOURCE}). "
-                "Comprueba que la cámara está conectada y habilitada."
+                "Comprueba que la cámara está conectada, que existe "
+                "/dev/video0 y que tienes permisos para acceder a ella."
             )
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, RESOLUCION[0])
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, RESOLUCION[1])
@@ -239,8 +259,9 @@ def grabar_posiciones(read_fn, duracion_s):
     frame_count = 0
 
     win = "Medicion estatica - NO MOVER LA CAMARA"
-    cv2.namedWindow(win, cv2.WINDOW_NORMAL)
-    cv2.resizeWindow(win, 960, 720)
+    if MOSTRAR_PREVIEW:
+        cv2.namedWindow(win, cv2.WINDOW_NORMAL)
+        cv2.resizeWindow(win, 960, 720)
 
     print(f"\n  Grabando durante {duracion_s} segundos...")
     print(f"  NO MUEVAS LA CÁMARA\n")
@@ -297,11 +318,13 @@ def grabar_posiciones(read_fn, duracion_s):
                 "n_markers": n_markers,
             })
 
-        cv2.imshow(win, frame)
-        if cv2.waitKey(1) & 0xFF == ord("q"):
-            break
+        if MOSTRAR_PREVIEW:
+            cv2.imshow(win, frame)
+            if cv2.waitKey(1) & 0xFF == ord("q"):
+                break
 
-    cv2.destroyWindow(win)
+    if MOSTRAR_PREVIEW:
+        cv2.destroyWindow(win)
     print(f"  Grabación terminada: {len(muestras)} muestras en "
           f"{frame_count} frames ({elapsed:.1f}s)")
 
