@@ -1,0 +1,18 @@
+# ROS2 build artifacts
+build/
+install/
+log/
+*.pyc
+__pycache__/
+
+# Electron
+gcs/node_modules/
+gcs/dist/
+
+# IDE
+.vscode/
+.claude/
+*.db
+*.db-shm
+*.db-wal
+.DS_Store

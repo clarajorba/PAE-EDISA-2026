@@ -1,0 +1,25 @@
+{
+  "name": "drone-gcs",
+  "version": "1.0.0",
+  "description": "Drone Ground Control Station — Electron frontend for ROS2",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder"
+  },
+  "build": {
+    "appId": "com.dron.gcs",
+    "productName": "Drone GCS",
+    "directories": { "output": "dist" },
+    "linux":   { "target": "AppImage" },
+    "win":     { "target": "nsis" },
+    "mac":     { "target": "dmg" }
+  },
+  "dependencies": {
+    "roslib": "^1.3.0"
+  },
+  "devDependencies": {
+    "electron": "^30.0.0",
+    "electron-builder": "^24.0.0"
+  }
+}

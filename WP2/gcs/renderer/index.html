@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src * data:; connect-src ws://localhost:* http://localhost:*">
+  <title>Drone GCS</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- ── Header ─────────────────────────────────────────────────────────── -->
+  <header id="header">
+    <span id="app-title">DRONE GCS</span>
+    <span id="pose-display">Pose  X:—  Y:—  Z:—  Yaw:—</span>
+    <div id="header-right">
+      <span id="ws-url">ws://localhost:9090</span>
+      <span id="status">● CONNECTING…</span>
+    </div>
+  </header>
+
+  <!-- ── Body grid ──────────────────────────────────────────────────────── -->
+  <main id="main">
+
+    <!-- Row 0 · Video streams + Nav map -->
+    <section class="group" id="cam1-group">
+      <p class="group-title">CAMERA 1 — /sensor/camera_front <span class="pending">(pending)</span></p>
+      <canvas id="cam1-canvas"></canvas>
+    </section>
+
+    <section class="group" id="cam2-group">
+      <p class="group-title">CAMERA 2 — /sensor/camera_down <span class="pending">(pending)</span></p>
+      <canvas id="cam2-canvas"></canvas>
+    </section>
+
+    <section class="group" id="nav-group">
+      <p class="group-title">NAV MAP — nav_msgs/Odometry <span class="pending">(pending — using /drone/pose)</span></p>
+      <canvas id="nav-canvas"></canvas>
+    </section>
+
+    <!-- Row 1 · Telemetry -->
+    <div id="tele-row">
+
+      <section class="group" id="speed-group">
+        <p class="group-title">SPEED — /drone/cmd_vel</p>
+        <canvas id="speed-canvas"></canvas>
+      </section>
+
+      <section class="group" id="alt-group">
+        <p class="group-title">ALTITUDE — /drone/pose [z]</p>
+        <div id="alt-inner">
+          <div id="alt-track">
+            <div id="alt-fill"></div>
+            <div id="alt-ticks">
+              <span></span><span></span><span></span>
+            </div>
+          </div>
+          <span id="alt-label">0.0 m</span>
+        </div>
+      </section>
+
+      <section class="group" id="bat-group">
+        <p class="group-title">BATTERY — /sensor/battery <span class="pending">(pending)</span></p>
+        <div id="bat-inner">
+          <div id="bat-track"><div id="bat-fill"></div></div>
+          <span id="bat-label">100 % ██████████</span>
+          <span class="pending" style="font-size:9px;margin-top:4px">/sensor/battery not yet connected</span>
+        </div>
+      </section>
+
+      <section class="group" id="log-group">
+        <p class="group-title">BARCODE DATABASE LOG</p>
+        <div id="log-scroll">
+          <table id="log-table">
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Barcode</th>
+                <th>Shelf</th>
+                <th>Row</th>
+                <th>Conf.</th>
+              </tr>
+            </thead>
+            <tbody id="log-tbody"></tbody>
+          </table>
+        </div>
+        <p id="log-placeholder">Awaiting barcode detections…<br>
+          <span class="pending">(image tracking node not yet implemented)</span>
+        </p>
+      </section>
+
+    </div><!-- /tele-row -->
+  </main>
+
+  <script src="../node_modules/roslib/build/roslib.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
