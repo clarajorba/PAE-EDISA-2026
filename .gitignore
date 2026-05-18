@@ -3,6 +3,8 @@
 # Python cache and generated files
 __pycache__/
 *.py[cod]
+.venv/
+.venv-wp3/
 .ipynb_checkpoints/
 pose_log.json
 fotos_aruco/

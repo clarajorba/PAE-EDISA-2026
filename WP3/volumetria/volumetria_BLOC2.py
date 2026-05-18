@@ -2,13 +2,38 @@ import os
 import cv2
 import numpy as np
 import math
-from ultralytics import YOLO, SAM
+import torch
+from PIL import Image
+import torchvision.transforms.functional as TF
+from ultralytics import SAM
+from groundingdino.util.inference import predict as gdino_predict
+
+# ==========================================
+# CONFIGURACIÓ GROUNDINGDINO
+# ==========================================
+GDINO_PROMPT  = "cardboard box . box . carton . stacked cardboard box . warehouse package . pallet ."
+GDINO_BOX_THR = 0.19
+GDINO_TXT_THR = 0.3
+DEVICE        = "cuda" if torch.cuda.is_available() else "cpu"
 
 # ==========================================
 # CONFIGURACIÓ PRINCIPAL (BLOC 2)
 # ==========================================
-CARPETA_FOTOS_SEQ = "../fotos_caixa" 
-CARPETA_RESULTATS = "outputs/Resultats_BLOC2" # Ja no l'usarem directament, però ho deixem
+CARPETA_FOTOS_SEQ = "../fotos_caixa"
+CARPETA_RESULTATS = "outputs/Resultats_BLOC2"
+
+
+def _prepare_gdino_image(img_bgr: np.ndarray) -> torch.Tensor:
+    """Convierte imagen BGR numpy al tensor normalizado que espera GroundingDINO."""
+    rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
+    pil = Image.fromarray(rgb)
+    w, h = pil.size
+    scale = 800 / min(w, h)
+    if max(w, h) * scale > 1333:
+        scale = 1333 / max(w, h)
+    pil = pil.resize((int(round(w * scale)), int(round(h * scale))), Image.BILINEAR)
+    tensor = TF.to_tensor(pil)
+    return TF.normalize(tensor, [0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
 
 # ==========================================
 # CONFIGURACIÓ DE FILTRES GEOMÈTRICS
@@ -199,55 +224,78 @@ def tracking_robust_amb_memoria(deteccions_actuals, distancia_lidar_cm):
 
 def extreure_ids_i_posicions(img, detector, segmentador, distancia_lidar_cm):
     """Funció de servei per al BLOC 0: Ara retorna també la màscara i el color"""
-    resultats_det = detector.predict(img, conf=0.2, verbose=False) 
     caixes_detectades_frame = []
-    
-    if resultats_det[0].boxes is not None and len(resultats_det[0].boxes) > 0:
-        caixes_yolo = resultats_det[0].boxes.xyxy.cpu().numpy().tolist()
-        scores      = resultats_det[0].boxes.conf.cpu().numpy()
+    H, W = img.shape[:2]
 
-        # NOU: filtres geomètrics + duplicats abans del SAM
-        caixes_yolo, scores = aplicar_filtres(caixes_yolo, scores, img.shape)
+    gdino_img = _prepare_gdino_image(img)
+    raw_boxes, raw_logits, raw_phrases = gdino_predict(
+        model=detector, image=gdino_img,
+        caption=GDINO_PROMPT,
+        box_threshold=GDINO_BOX_THR,
+        text_threshold=GDINO_TXT_THR,
+        device=DEVICE,
+    )
 
-        if len(caixes_yolo) == 0:
-            return caixes_detectades_frame
-        
-        centroides_actuals = []
-        info_caixes = []
+    if len(raw_boxes) == 0:
+        return caixes_detectades_frame
 
-        for box in caixes_yolo:
-            x1, y1, x2, y2 = map(int, box)
-            marge = 60 
-            box_ampliada = [max(0, x1-marge), max(0, y1-marge), min(img.shape[1], x2+marge), min(img.shape[0], y2+marge)]
-            
-            resultats_sam = segmentador.predict(img, bboxes=box_ampliada, verbose=False)
-            
-            if resultats_sam[0].masks is not None and len(resultats_sam[0].masks.xy) > 0:
-                contorn_np = np.array(resultats_sam[0].masks.xy[0], dtype=np.int32)
-                moments = cv2.moments(contorn_np)
-                if moments["m00"] != 0:
-                    cx = int(moments["m10"] / moments["m00"])
-                    cy = int(moments["m01"] / moments["m00"])
-                else:
-                    cx, cy = int((x1+x2)/2), int((y1+y2)/2)
-                
-                centroides_actuals.append((cx, cy))
-                # Guardem el contorn i el centre per poder-ho pintar després
-                info_caixes.append({'bbox_ampliada': box_ampliada, 'cx': cx, 'cy': cy, 'contorn': contorn_np})
+    # Separem pallets de caixes i ens quedem només amb caixes
+    pallet_mask = np.array(["pallet" in p.lower() for p in raw_phrases])
+    box_mask    = ~pallet_mask
+    boxes_norm  = raw_boxes.numpy()[box_mask]
+    scores      = raw_logits.numpy()[box_mask]
 
-        ids_assignats_finals = tracking_robust_amb_memoria(centroides_actuals, distancia_lidar_cm)
-        
-        for caixa in info_caixes:
-            for id_info in ids_assignats_finals:
-                if math.hypot(caixa['cx'] - id_info['centroide'][0], caixa['cy'] - id_info['centroide'][1]) < 5: 
-                    caixes_detectades_frame.append({
-                        'id': id_info['id'],
-                        'bbox': caixa['bbox_ampliada'],
-                        'color': id_info['color'],
-                        'contorn': caixa['contorn'],
-                        'cx': caixa['cx'],
-                        'cy': caixa['cy']
-                    })
-                    break 
-                    
+    if len(boxes_norm) == 0:
+        return caixes_detectades_frame
+
+    # Convertim de cx cy w h normalitzat a x1 y1 x2 y2 en píxels
+    cx, cy, bw, bh = boxes_norm[:, 0], boxes_norm[:, 1], boxes_norm[:, 2], boxes_norm[:, 3]
+    caixes_yolo = np.stack([
+        (cx - bw / 2) * W, (cy - bh / 2) * H,
+        (cx + bw / 2) * W, (cy + bh / 2) * H,
+    ], axis=1).tolist()
+
+    # Filtres geomètrics + duplicats abans del SAM
+    caixes_yolo, scores = aplicar_filtres(caixes_yolo, scores, img.shape)
+
+    if len(caixes_yolo) == 0:
+        return caixes_detectades_frame
+
+    centroides_actuals = []
+    info_caixes = []
+
+    for box in caixes_yolo:
+        x1, y1, x2, y2 = map(int, box)
+        marge = 60
+        box_ampliada = [max(0, x1-marge), max(0, y1-marge), min(img.shape[1], x2+marge), min(img.shape[0], y2+marge)]
+
+        resultats_sam = segmentador.predict(img, bboxes=box_ampliada, verbose=False)
+
+        if resultats_sam[0].masks is not None and len(resultats_sam[0].masks.xy) > 0:
+            contorn_np = np.array(resultats_sam[0].masks.xy[0], dtype=np.int32)
+            moments = cv2.moments(contorn_np)
+            if moments["m00"] != 0:
+                cx = int(moments["m10"] / moments["m00"])
+                cy = int(moments["m01"] / moments["m00"])
+            else:
+                cx, cy = int((x1+x2)/2), int((y1+y2)/2)
+
+            centroides_actuals.append((cx, cy))
+            info_caixes.append({'bbox_ampliada': box_ampliada, 'cx': cx, 'cy': cy, 'contorn': contorn_np})
+
+    ids_assignats_finals = tracking_robust_amb_memoria(centroides_actuals, distancia_lidar_cm)
+
+    for caixa in info_caixes:
+        for id_info in ids_assignats_finals:
+            if math.hypot(caixa['cx'] - id_info['centroide'][0], caixa['cy'] - id_info['centroide'][1]) < 5:
+                caixes_detectades_frame.append({
+                    'id': id_info['id'],
+                    'bbox': caixa['bbox_ampliada'],
+                    'color': id_info['color'],
+                    'contorn': caixa['contorn'],
+                    'cx': caixa['cx'],
+                    'cy': caixa['cy']
+                })
+                break
+
     return caixes_detectades_frame

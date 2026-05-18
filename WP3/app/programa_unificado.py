@@ -66,6 +66,8 @@ def configure_volumetria(module, args: argparse.Namespace) -> None:
     module.CARPETA_FOTOS = str(args.fotos)
     module.CARPETA_RESULTATS = str(args.resultados)
     module.MANIFEST_CSV = str(args.manifest)
+    module.GDINO_CONFIG = str(args.gdino_config)
+    module.GDINO_WEIGHTS = str(args.gdino_weights)
 
 
 def run_volumetria(args: argparse.Namespace) -> None:
@@ -76,9 +78,14 @@ def run_volumetria(args: argparse.Namespace) -> None:
         manifest = VOLUMETRIA_DIR / manifest
     args.manifest = manifest
 
-    require_file(VOLUMETRIA_DIR / "models" / "yolov8s-world.pt", "modelo YOLO de volumetria")
+    gdino_config = DETECCION_DIR / args.gdino_config
+    gdino_weights = DETECCION_DIR / args.gdino_weights
+    require_file(gdino_config, "configuracion GroundingDINO para volumetria")
+    require_file(gdino_weights, "pesos GroundingDINO para volumetria")
     require_file(VOLUMETRIA_DIR / "models" / "mobile_sam.pt", "modelo MobileSAM de volumetria")
     require_file(manifest, "manifest CSV")
+    args.gdino_config = gdino_config
+    args.gdino_weights = gdino_weights
     if not args.grabar_video:
         fotos = Path(args.fotos)
         if not fotos.is_absolute():
@@ -188,6 +195,8 @@ def build_parser() -> argparse.ArgumentParser:
     volumetria.add_argument("--fotos", default="data/fotos_capturades")
     volumetria.add_argument("--resultados", default="outputs/Resultats_BLOC0")
     volumetria.add_argument("--manifest", default="data/etiquetes_magatzem_simulades_manifest.csv")
+    volumetria.add_argument("--gdino-config", default="groundingdino/config/GroundingDINO_SwinT_OGC.py")
+    volumetria.add_argument("--gdino-weights", default="weights/groundingdino_swint_ogc.pth")
     volumetria.set_defaults(func=run_volumetria)
 
     detectar_imagenes = subparsers.add_parser(

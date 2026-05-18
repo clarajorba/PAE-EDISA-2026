@@ -1,12 +1,36 @@
 import os
 import cv2
 import numpy as np
-from ultralytics import YOLO, SAM
+import torch
+from PIL import Image
+import torchvision.transforms.functional as TF
+from ultralytics import SAM
+from groundingdino.util.inference import load_model, predict as gdino_predict
 
 # ==========================================
 # CONFIGURACIÓ
 # ==========================================
-IMATGE_PROVA = "../fotos_caixa/IMG_0944.jpg" 
+IMATGE_PROVA = "../fotos_caixa/IMG_0944.jpg"
+
+GDINO_CONFIG  = "../deteccion_cajas/groundingdino/config/GroundingDINO_SwinT_OGC.py"
+GDINO_WEIGHTS = "../deteccion_cajas/weights/groundingdino_swint_ogc.pth"
+GDINO_PROMPT  = "cardboard box . box . carton . stacked cardboard box . warehouse package ."
+GDINO_BOX_THR = 0.19
+GDINO_TXT_THR = 0.3
+DEVICE        = "cuda" if torch.cuda.is_available() else "cpu"
+
+
+def _prepare_gdino_image(img_bgr: np.ndarray) -> torch.Tensor:
+    """Convierte imagen BGR numpy al tensor normalizado que espera GroundingDINO."""
+    rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
+    pil = Image.fromarray(rgb)
+    w, h = pil.size
+    scale = 800 / min(w, h)
+    if max(w, h) * scale > 1333:
+        scale = 1333 / max(w, h)
+    pil = pil.resize((int(round(w * scale)), int(round(h * scale))), Image.BILINEAR)
+    tensor = TF.to_tensor(pil)
+    return TF.normalize(tensor, [0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
 
 # FUNCIÓ: Lògica Pura d'Intersecció de Línies
 def calcular_interseccio(line1, line2):
@@ -40,14 +64,26 @@ def detectar_qualsevol_caixa(ruta_o_img, mostrar_visualment=False, bbox_objectiu
         box_ampliada = bbox_objectiu
     else:
         if detector is None:
-            detector = YOLO("models/yolov8s-world.pt")
-            detector.set_classes(["box"]) 
-        resultats_det = detector.predict(img, conf=0.1, verbose=False)
-        if not resultats_det[0].boxes: return None
-        box = resultats_det[0].boxes.xyxy[0].cpu().numpy()
-        x1, y1, x2, y2 = map(int, box)
+            detector = load_model(GDINO_CONFIG, GDINO_WEIGHTS).to(DEVICE)
+        H, W = img.shape[:2]
+        gdino_img = _prepare_gdino_image(img)
+        raw_boxes, raw_logits, _ = gdino_predict(
+            model=detector, image=gdino_img,
+            caption=GDINO_PROMPT,
+            box_threshold=GDINO_BOX_THR,
+            text_threshold=GDINO_TXT_THR,
+            device=DEVICE,
+        )
+        if len(raw_boxes) == 0:
+            return None
+        best = int(raw_logits.argmax())
+        cx_b, cy_b, bw, bh = raw_boxes[best].tolist()
+        x1 = int((cx_b - bw / 2) * W)
+        y1 = int((cy_b - bh / 2) * H)
+        x2 = int((cx_b + bw / 2) * W)
+        y2 = int((cy_b + bh / 2) * H)
         marge = 40
-        box_ampliada = [max(0, x1-marge), max(0, y1-marge), min(img.shape[1], x2+marge), min(img.shape[0], y2+marge)]
+        box_ampliada = [max(0, x1-marge), max(0, y1-marge), min(W, x2+marge), min(H, y2+marge)]
 
     if segmentador is None:
         segmentador = SAM("models/mobile_sam.pt") 

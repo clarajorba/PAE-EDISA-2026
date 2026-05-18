@@ -4,7 +4,9 @@ import time
 import csv
 import threading
 import numpy as np
-from ultralytics import YOLO, SAM
+import torch
+from ultralytics import SAM
+from groundingdino.util.inference import load_model
 
 # Lector de codis de barres simple (CODE39 + CODE128)
 from lector_codis_barres import detectar_codis
@@ -28,9 +30,13 @@ MANIFEST_CSV = os.path.join(BASE_DIR, "data", "etiquetes_magatzem_simulades_mani
 # ==========================================
 # CONFIGURACIÓ DE CAPTURA DE VÍDEO
 # ==========================================
-GRAVAR_NOU_VIDEO = True        
-FONT_VIDEO = "tcp://172.20.10.2:8888"                 
-INTERVAL_CAPTURA_SEG = 1.0      
+GRAVAR_NOU_VIDEO = True
+FONT_VIDEO = "tcp://172.20.10.2:8888"
+INTERVAL_CAPTURA_SEG = 1.0
+
+GDINO_CONFIG  = "../deteccion_cajas/groundingdino/config/GroundingDINO_SwinT_OGC.py"
+GDINO_WEIGHTS = "../deteccion_cajas/weights/groundingdino_swint_ogc.pth"
+DEVICE        = "cuda" if torch.cuda.is_available() else "cpu"
 # ==========================================
 
 class CameraStream:
@@ -213,9 +219,8 @@ def executar_pipeline_orquestrat():
         if not os.path.exists(CARPETA_FOTOS): return
 
     print("\nCarregant models d'Intel·ligència Artificial...")
-    detector = YOLO("models/yolov8s-world.pt")
-    detector.set_classes(["box"]) 
-    segmentador = SAM("models/mobile_sam.pt") 
+    detector = load_model(GDINO_CONFIG, GDINO_WEIGHTS).to(DEVICE)
+    segmentador = SAM("models/mobile_sam.pt")
 
     os.makedirs(CARPETA_RESULTATS, exist_ok=True)
     arxius = sorted([f for f in os.listdir(CARPETA_FOTOS) if f.lower().endswith(('.png', '.jpg', '.jpeg'))])
