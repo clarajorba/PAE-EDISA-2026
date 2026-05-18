@@ -39,7 +39,7 @@ else:
 
 DEBUG = False
 
-CARPETA_ENTRADA = "demo_output"
+CARPETA_ENTRADA = Path("..") / ".." / "data" / "fotos_capturades"
 CARPETA_SORTIDA = "demo_output_detected"
 NOM_MANIFEST = "etiquetes_magatzem_simulades_manifest.csv"
 
