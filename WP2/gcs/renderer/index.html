@@ -17,7 +17,7 @@
       --text:   #cdd3de;
       --muted:  #5a6072;
       --topbar: 44px;
-      --motors: 108px;
+      --motors: 0px;
     }
     html, body { width:100%; height:100%; background:var(--bg); color:var(--text);
       font-family:'Segoe UI',system-ui,sans-serif; font-size:13px; overflow:hidden; }
@@ -48,7 +48,59 @@
     #ros-dot.connecting { background:var(--warn);   animation:blink 1s infinite; }
     #ros-dot.error      { background:var(--danger); }
     @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.25} }
-    #ros-url { font-size:11px; color:var(--muted); margin-right:6px; }
+    #ros-url { font-size:11px; color:var(--muted); margin-right:6px;
+               cursor:pointer; user-select:none; }
+    #ros-url:hover { color:var(--text); }
+
+    /* ── CONNECTION POPOVER ──────────────────────────── */
+    #conn-popover {
+      display:none; position:absolute; top:calc(var(--topbar) + 6px); right:8px;
+      background:var(--card); border:1px solid var(--border); border-radius:6px;
+      padding:12px 14px; z-index:200; box-shadow:0 6px 20px rgba(0,0,0,.55);
+      min-width:270px;
+    }
+    #conn-popover .pop-label {
+      font-size:10px; font-weight:700; letter-spacing:1px; text-transform:uppercase;
+      color:var(--muted); margin-bottom:8px;
+    }
+    #conn-popover .pop-row { display:flex; gap:6px; align-items:center; }
+    #ros-input {
+      flex:1; background:var(--bg); border:1px solid var(--border); border-radius:4px;
+      color:var(--text); font-size:12px; font-family:monospace; padding:5px 8px;
+      outline:none;
+    }
+    #ros-input:focus { border-color:var(--accent); }
+    #btn-connect {
+      padding:5px 12px; border-radius:4px; border:none; background:var(--accent);
+      color:#fff; font-size:12px; font-weight:700; cursor:pointer; white-space:nowrap;
+    }
+    #btn-connect:hover { filter:brightness(1.15); }
+    #conn-popover .pop-hint {
+      font-size:10px; color:var(--muted); margin-top:8px;
+    }
+    #pop-divider { border:none; border-top:1px solid var(--border); margin:10px 0; }
+    #scan-btn {
+      width:100%; padding:5px 0; border-radius:4px; border:1px solid var(--border);
+      background:var(--bg); color:var(--muted); font-size:11px; font-weight:600;
+      cursor:pointer; letter-spacing:.3px; transition:color .15s, border-color .15s;
+    }
+    #scan-btn:hover:not(:disabled) { border-color:var(--accent); color:var(--accent); }
+    #scan-btn:disabled { opacity:.45; cursor:default; }
+    #scan-status { font-size:10px; color:var(--muted); margin-top:6px; min-height:14px; }
+    #scan-results { margin-top:4px; }
+    .scan-host {
+      display:flex; align-items:center; justify-content:space-between;
+      padding:5px 0; border-bottom:1px solid rgba(46,51,64,.5);
+    }
+    .scan-host:last-child { border-bottom:none; }
+    .sh-info { display:flex; flex-direction:column; gap:1px; }
+    .sh-ip   { font-family:monospace; font-size:12px; color:var(--text); }
+    .sh-tag  { font-size:10px; color:var(--ok); }
+    .sh-use  {
+      padding:3px 10px; border-radius:3px; border:none; background:var(--accent);
+      color:#fff; font-size:11px; font-weight:700; cursor:pointer;
+    }
+    .sh-use:hover { filter:brightness(1.2); }
     .hdr-badge {
       padding:2px 8px; border-radius:4px; font-size:11px; font-weight:700;
       background:var(--border); color:var(--muted); letter-spacing:.3px;
@@ -84,7 +136,8 @@
     }
     #dash-main {
       display:grid;
-      grid-template-columns: 190px 1fr 234px;
+      grid-template-columns: 230px 1fr 280px;
+      grid-template-rows: 100%;
       flex:1; overflow:hidden;
       height: calc(100vh - var(--topbar) - var(--motors));
     }
@@ -129,6 +182,7 @@
     /* Camera */
     #cam-col {
       background:#0d0f13; display:flex; flex-direction:column; position:relative;
+      overflow:hidden;
     }
     #cam-col .ph { background:#111418; color:rgba(255,255,255,.35);
                    display:flex; justify-content:space-between; }
@@ -163,6 +217,13 @@
     #db-table td { padding:3px 8px; border-bottom:1px solid rgba(46,51,64,.4); }
     #db-scroll { overflow-y:auto; flex:1; }
     .db-ok { color:var(--ok); font-weight:700; }
+
+    /* Hexacopter diagram (inside cam column, bottom half) */
+    #hex-block {
+      border-top:2px solid var(--border); flex-shrink:0;
+      background:var(--panel); display:flex; flex-direction:column;
+    }
+    #hex-diagram { display:block; margin:0 auto; }
 
     /* Motor strip */
     #motor-strip {
@@ -279,9 +340,23 @@
     <button class="tab-btn"        data-view="slam">SLAM</button>
     <button class="tab-btn"        data-view="image">Image Processing</button>
   </nav>
+  <!-- Connection popover (toggled by clicking the URL) -->
+  <div id="conn-popover">
+    <div class="pop-label">ROS Bridge</div>
+    <div class="pop-row">
+      <input id="ros-input" type="text" placeholder="ws://192.168.x.x:9090" spellcheck="false" />
+      <button id="btn-connect">Connect</button>
+    </div>
+    <div class="pop-hint">Click URL to re-open · Enter to confirm</div>
+    <hr id="pop-divider">
+    <button id="scan-btn">⬡ Scan network for Raspberry Pi</button>
+    <div id="scan-status"></div>
+    <div id="scan-results"></div>
+  </div>
+
   <div id="conn-row">
     <div id="ros-dot" class="connecting"></div>
-    <span id="ros-url">localhost:9090</span>
+    <span id="ros-url" title="Click to change connection">—</span>
     <span class="hdr-badge" id="hdr-armed">DISARMED</span>
     <span class="hdr-badge" id="hdr-mode">—</span>
     <span class="hdr-badge" id="hdr-gps">NO GPS</span>
@@ -297,7 +372,7 @@
     <!-- KPI column -->
     <div id="kpi-col">
       <div class="ph">Airspeed</div>
-      <div id="spd-block"><canvas id="gauge-speed" width="166" height="166"></canvas></div>
+      <div id="spd-block"><canvas id="gauge-speed" width="200" height="200"></canvas></div>
 
       <div class="kpi-block">
         <div class="kpi-lbl">Altitude (rel)</div>
@@ -307,6 +382,11 @@
         </div>
       </div>
 
+      <div class="kpi-block">
+        <div class="kpi-lbl">Heading</div>
+        <div class="kpi-num"><span id="val-hdg">—</span><span class="unit">°</span></div>
+      </div>
+
       <div id="bat-block">
         <canvas id="gauge-battery" width="64" height="64"></canvas>
         <div class="bat-info">
@@ -314,11 +394,6 @@
           <div class="kpi-num"><span id="val-bat">—</span><span class="unit">%</span></div>
           <div style="font-size:11px;color:var(--muted);margin-top:2px" id="val-volt">— V</div>
         </div>
-      </div>
-
-      <div class="kpi-block">
-        <div class="kpi-lbl">Heading</div>
-        <div class="kpi-num"><span id="val-hdg">—</span><span class="unit">°</span></div>
       </div>
 
       <div id="mode-block">
@@ -336,16 +411,17 @@
       </div>
     </div>
 
-    <!-- Camera -->
+    <!-- Camera (centre — large) -->
     <div id="cam-col">
       <div class="ph">
         <span>Cam 1 — Forward</span>
         <span class="cam-sig no" id="cam1-sig">NO SIGNAL</span>
       </div>
-      <canvas id="cam1"></canvas>
+      <img id="cam1-img" style="flex:1;width:100%;min-height:0;display:none;object-fit:contain;background:#000">
+      <canvas id="cam1" style="flex:1;width:100%;min-height:0;display:block"></canvas>
     </div>
 
-    <!-- Map + DB -->
+    <!-- Nav Map + DB (right) -->
     <div id="right-col">
       <div id="map-wrap">
         <div class="ph">Nav Map</div>
@@ -371,18 +447,6 @@
     </div>
   </div>
 
-  <!-- Motor strip -->
-  <div id="motor-strip">
-    <div class="motors-title">Propulsors</div>
-    <div class="motors-row">
-      <div class="motor-cell"><canvas id="motor-1" width="76" height="76"></canvas><span>M1</span></div>
-      <div class="motor-cell"><canvas id="motor-2" width="76" height="76"></canvas><span>M2</span></div>
-      <div class="motor-cell"><canvas id="motor-3" width="76" height="76"></canvas><span>M3</span></div>
-      <div class="motor-cell"><canvas id="motor-4" width="76" height="76"></canvas><span>M4</span></div>
-      <div class="motor-cell"><canvas id="motor-5" width="76" height="76"></canvas><span>M5</span></div>
-      <div class="motor-cell"><canvas id="motor-6" width="76" height="76"></canvas><span>M6</span></div>
-    </div>
-  </div>
 </section>
 
 <!-- ══════════════════════════════════════════════════════

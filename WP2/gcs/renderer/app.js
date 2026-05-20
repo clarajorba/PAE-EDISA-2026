@@ -48,7 +48,7 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
 })
 
 // ── ROS connection ────────────────────────────────────────────────────────────
-const ROS_URL = 'ws://localhost:9090'
+let ROS_URL = localStorage.getItem('ros_url') || 'ws://localhost:9090'
 let ros = null, reconnTimer = null
 
 function setDot (state) {
@@ -58,12 +58,193 @@ function setDot (state) {
 function connect () {
   if (ros) { try { ros.close() } catch (_) {} }
   setDot('connecting')
+  $('ros-url').textContent = ROS_URL.replace(/^wss?:\/\//, '')
   ros = new ROSLIB.Ros({ url: ROS_URL })
   ros.on('connection', () => { setDot('connected'); clearTimeout(reconnTimer); subscribe() })
   ros.on('error',      () => { setDot('error');     sched() })
   ros.on('close',      () => { setDot('error');     sched() })
+
+  // Attempt MJPEG camera on same host, port 8080
+  const host = ROS_URL.replace(/^wss?:\/\//, '').replace(/:\d+$/, '')
+  connectMJPEG(`http://${host}:8080/cam1`)
+}
+
+// ── MJPEG camera ──────────────────────────────────────────────────────────────
+function connectMJPEG (url) {
+  const img    = $('cam1-img')
+  const canvas = $('cam1')
+  const sig    = $('cam1-sig')
+
+  img.onload = () => {
+    // First frame loaded — switch to img, hide test pattern canvas
+    img.style.display   = 'block'
+    canvas.style.display = 'none'
+    sig.textContent  = 'LIVE'
+    sig.className    = 'cam-sig ok'
+  }
+
+  img.onerror = () => {
+    img.style.display    = 'none'
+    canvas.style.display = 'block'
+    sig.textContent  = 'NO SIGNAL'
+    sig.className    = 'cam-sig no'
+    // Retry after 3 s
+    setTimeout(() => { if (img.src) img.src = url + '?t=' + Date.now() }, 3000)
+  }
+
+  img.src = url
 }
 function sched () { clearTimeout(reconnTimer); reconnTimer = setTimeout(connect, 3000) }
+
+// ── network discovery ─────────────────────────────────────────────────────────
+
+// Try to open a WebSocket and resolve true if it connects within `ms`
+function probeWS (url, ms) {
+  return new Promise(resolve => {
+    let done = false
+    const finish = ok => { if (!done) { done = true; resolve(ok) } }
+    const t = setTimeout(() => { try { ws.close() } catch (_) {} finish(false) }, ms)
+    let ws
+    try {
+      ws = new WebSocket(url)
+      ws.onopen  = () => { clearTimeout(t); try { ws.close() } catch (_) {} finish(true)  }
+      ws.onerror = () => { clearTimeout(t); finish(false) }
+    } catch (_) { clearTimeout(t); finish(false) }
+  })
+}
+
+// Get local IP via WebRTC ICE candidate (works in Electron / Chromium)
+function getLocalIP () {
+  return new Promise(resolve => {
+    const pc = new RTCPeerConnection({ iceServers: [] })
+    pc.createDataChannel('')
+    pc.createOffer().then(o => pc.setLocalDescription(o)).catch(() => resolve(null))
+    const t = setTimeout(() => { pc.close(); resolve(null) }, 1500)
+    pc.onicecandidate = ({ candidate }) => {
+      if (!candidate) return
+      const m = /([0-9]{1,3}(?:\.[0-9]{1,3}){3})/.exec(candidate.candidate)
+      if (m && !m[1].startsWith('127.')) {
+        clearTimeout(t); pc.close(); resolve(m[1])
+      }
+    }
+  })
+}
+
+// Scan a /24 subnet for open rosbridge port 9090.
+// onFound(ip) called for each live host; returns when scan completes.
+async function scanSubnet (subnet, port, onFound, onProgress) {
+  const BATCH = 40   // parallel probes at a time
+  const TOUT  = 400  // ms per probe
+  let scanned = 0
+  for (let start = 1; start <= 254; start += BATCH) {
+    const tasks = []
+    for (let i = start; i <= Math.min(start + BATCH - 1, 254); i++) {
+      const ip = `${subnet}.${i}`
+      tasks.push(
+        probeWS(`ws://${ip}:${port}`, TOUT).then(ok => {
+          scanned++
+          onProgress(scanned)
+          if (ok) onFound(ip)
+        })
+      )
+    }
+    await Promise.all(tasks)
+  }
+}
+
+// ── connection popover ────────────────────────────────────────────────────────
+function initConnPopover () {
+  const pop   = $('conn-popover')
+  const input = $('ros-input')
+  const urlEl = $('ros-url')
+
+  urlEl.addEventListener('click', e => {
+    e.stopPropagation()
+    const open = pop.style.display === 'block'
+    pop.style.display = open ? 'none' : 'block'
+    if (!open) { input.value = ROS_URL; input.focus(); input.select() }
+  })
+
+  $('btn-connect').addEventListener('click', () => {
+    let url = input.value.trim()
+    if (!url) return
+    if (!/^wss?:\/\//.test(url)) url = 'ws://' + url
+    ROS_URL = url
+    localStorage.setItem('ros_url', ROS_URL)
+    pop.style.display = 'none'
+    clearTimeout(reconnTimer)
+    connect()
+  })
+
+  input.addEventListener('keydown', e => {
+    if (e.key === 'Enter')  $('btn-connect').click()
+    if (e.key === 'Escape') pop.style.display = 'none'
+  })
+
+  document.addEventListener('click', e => {
+    if (!pop.contains(e.target) && e.target !== urlEl) pop.style.display = 'none'
+  })
+
+  // ── network scan ───────────────────────────────────────────────────────────
+  const scanBtn     = $('scan-btn')
+  const scanStatus  = $('scan-status')
+  const scanResults = $('scan-results')
+
+  function addScanHost (label, url, tag) {
+    const div = document.createElement('div')
+    div.className = 'scan-host'
+    div.innerHTML =
+      `<div class="sh-info">
+         <span class="sh-ip">${label}</span>
+         ${tag ? `<span class="sh-tag">${tag}</span>` : ''}
+       </div>
+       <button class="sh-use">Use</button>`
+    div.querySelector('.sh-use').addEventListener('click', () => {
+      input.value = url
+      $('btn-connect').click()
+    })
+    scanResults.appendChild(div)
+  }
+
+  scanBtn.addEventListener('click', async () => {
+    scanBtn.disabled = true
+    scanResults.innerHTML = ''
+    scanStatus.textContent = 'Trying raspberrypi.local…'
+
+    let found = 0
+
+    // 1 — mDNS shortcut (works if Avahi is running on the Pi)
+    const mdnsUrl = 'ws://raspberrypi.local:9090'
+    if (await probeWS(mdnsUrl, 1200)) {
+      found++
+      addScanHost('raspberrypi.local', mdnsUrl, '● Raspberry Pi (mDNS)')
+      scanStatus.textContent = `Found via mDNS — scanning subnet too…`
+    }
+
+    // 2 — subnet scan
+    const localIP = await getLocalIP()
+    if (!localIP) {
+      scanStatus.textContent = found
+        ? `Found ${found} host(s). Could not detect subnet.`
+        : 'Could not detect local IP. Enter URL manually.'
+      scanBtn.disabled = false
+      return
+    }
+
+    const subnet = localIP.split('.').slice(0, 3).join('.')
+    scanStatus.textContent = `Scanning ${subnet}.0/24…`
+
+    await scanSubnet(subnet, 9090,
+      ip => { found++; addScanHost(ip, `ws://${ip}:9090`, '') },
+      n  => { scanStatus.textContent = `Scanning ${subnet}.0/24… (${n}/254)` }
+    )
+
+    scanStatus.textContent = found
+      ? `Found ${found} host(s) with port 9090 open.`
+      : `No hosts found on ${subnet}.0/24 with port 9090 open.`
+    scanBtn.disabled = false
+  })
+}
 function sub (name, type, cb) {
   const t = new ROSLIB.Topic({ ros, name, messageType: type })
   t.subscribe(cb)
@@ -215,9 +396,8 @@ function subscribe () {
 
   // Compressed camera frames
   subCamImage('/camera/forward/image_raw/compressed',  'cam1',  'cam1-sig')
-  subCamImage('/camera/down/image_raw/compressed',     null,    null)  // downward used in img tab
-  subCamImage('/tracking/forward/compressed',          'icam1', 'icam1-sig')
-  subCamImage('/tracking/down/compressed',             'icam2', 'icam2-sig')
+  subCamImage('/camera/forward/image_raw/compressed',  'icam1', 'icam1-sig')
+  subCamImage('/camera/down/image_raw/compressed',     'icam2', 'icam2-sig')
 }
 
 // Subscribe to a compressed image topic and draw to a canvas by id
@@ -226,14 +406,18 @@ function subCamImage (topic, canvasId, sigId) {
   sub(topic, 'sensor_msgs/CompressedImage', m => {
     const canvas = $(canvasId)
     if (!canvas) return
-    const img = new Image()
-    img.onload = () => {
-      const ctx = canvas.getContext('2d')
-      ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
-      URL.revokeObjectURL(img.src)
-      if (sigId) { const s = $(sigId); if (s) { s.textContent = 'LIVE'; s.className = 'cam-sig ok' } }
-    }
-    img.src = 'data:image/jpeg;base64,' + m.data
+    // Decode base64 → Uint8Array → Blob → ImageBitmap (off-main-thread decode)
+    try {
+      const raw  = atob(m.data)
+      const buf  = new Uint8Array(raw.length)
+      for (let i = 0; i < raw.length; i++) buf[i] = raw.charCodeAt(i)
+      const blob = new Blob([buf], { type: 'image/jpeg' })
+      createImageBitmap(blob).then(bitmap => {
+        canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height)
+        bitmap.close()
+        if (sigId) { const s = $(sigId); if (s) { s.textContent = 'LIVE'; s.className = 'cam-sig ok' } }
+      }).catch(() => {})
+    } catch (_) {}
   })
 }
 
@@ -471,6 +655,84 @@ function drawMotor (id, pct) {
   ctx.fillStyle = '#cdd3de'; ctx.font = 'bold 13px monospace'
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
   ctx.fillText(Math.round(pct)+'%', cx, cy)
+}
+
+function drawHexDiagram () {
+  const canvas = $('hex-diagram')
+  if (!canvas) return
+  const W = canvas.width, H = canvas.height, ctx = canvas.getContext('2d')
+  ctx.clearRect(0, 0, W, H)
+
+  const cx = W / 2, cy = H / 2
+  const reach = Math.min(W, H) * 0.365  // distance center → motor center (px)
+  const scale = reach / 0.5             // converts PX4 unit coords → px
+  const mR    = 17                       // motor arc radius
+  const SA = 225 * DEG, TA = 270 * DEG
+
+  // Motor positions: sx=Y_right, sy=-X_fwd (matches QGC actuator layout)
+  // CCW per QGC table: motors 2, 4, 5 are CCW
+  const MOTORS = [
+    { n:1, sx: 0.50, sy: 0.00, ccw:false },
+    { n:2, sx:-0.50, sy: 0.00, ccw:true  },
+    { n:3, sx:-0.25, sy:-0.43, ccw:false },
+    { n:4, sx: 0.25, sy: 0.43, ccw:true  },
+    { n:5, sx: 0.25, sy:-0.43, ccw:true  },
+    { n:6, sx:-0.25, sy: 0.43, ccw:false },
+  ]
+
+  // 1. Arms (behind everything)
+  ctx.lineWidth = 3
+  MOTORS.forEach(m => {
+    ctx.beginPath()
+    ctx.moveTo(cx, cy)
+    ctx.lineTo(cx + m.sx * scale, cy + m.sy * scale)
+    ctx.strokeStyle = '#3a4050'; ctx.stroke()
+  })
+
+  // 2. Motor nodes with thrust arc gauges
+  MOTORS.forEach(m => {
+    const pct  = S.motors[m.n - 1] || 0
+    const mx   = cx + m.sx * scale
+    const my   = cy + m.sy * scale
+    const idle = m.ccw ? '#4d9fff' : '#3ddc84'
+    const col  = pct < 60 ? '#3ddc84' : pct < 80 ? '#f0a500' : '#e04040'
+    const ring = pct > 0 ? col : idle
+
+    // Background disc
+    ctx.beginPath(); ctx.arc(mx, my, mR + 3, 0, Math.PI * 2)
+    ctx.fillStyle = '#161b24'; ctx.fill()
+
+    // Arc track
+    ctx.beginPath(); ctx.arc(mx, my, mR, SA, SA + TA)
+    ctx.strokeStyle = '#2a2f3a'; ctx.lineWidth = 5; ctx.lineCap = 'round'; ctx.stroke()
+
+    // Thrust arc
+    if (pct > 0) {
+      ctx.beginPath(); ctx.arc(mx, my, mR, SA, SA + (pct / 100) * TA)
+      ctx.strokeStyle = col; ctx.lineWidth = 5; ctx.lineCap = 'round'; ctx.stroke()
+    }
+
+    // Rotation-direction colour ring
+    ctx.beginPath(); ctx.arc(mx, my, mR + 1.5, 0, Math.PI * 2)
+    ctx.strokeStyle = ring; ctx.lineWidth = 1.5; ctx.stroke()
+
+    // Labels: motor number + thrust %
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle'
+    ctx.fillStyle = idle; ctx.font = 'bold 8px monospace'
+    ctx.fillText('M' + m.n, mx, my - 5)
+    ctx.fillStyle = pct > 0 ? col : '#5a6072'; ctx.font = 'bold 8px monospace'
+    ctx.fillText(Math.round(pct) + '%', mx, my + 5)
+  })
+
+  // 3. Central body (over arm roots)
+  ctx.beginPath(); ctx.arc(cx, cy, 10, 0, Math.PI * 2)
+  ctx.fillStyle = '#555c6e'; ctx.fill()
+  ctx.strokeStyle = '#8a93a8'; ctx.lineWidth = 1.5; ctx.stroke()
+
+  // Forward indicator (red triangle = nose direction)
+  ctx.beginPath()
+  ctx.moveTo(cx, cy - 6); ctx.lineTo(cx - 4, cy + 3); ctx.lineTo(cx + 4, cy + 3)
+  ctx.closePath(); ctx.fillStyle = '#e04040'; ctx.fill()
 }
 
 function drawMap () {
@@ -835,7 +1097,7 @@ function frame () {
   updateDOM()
   drawSpeedometer()
   drawBatteryArc()
-  S.motors.forEach((m, i) => drawMotor('motor-' + (i+1), m))
+  drawHexDiagram()
   drawMap()
 
   if (S.activeView === 'navigation') {
@@ -858,6 +1120,7 @@ document.addEventListener('DOMContentLoaded', () => {
   drawTestPattern('icam1', 0)
   drawTestPattern('icam2', 120)
   resizeCanvases()
+  initConnPopover()
   connect()
   frame()
 })
