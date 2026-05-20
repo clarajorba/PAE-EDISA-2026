@@ -486,23 +486,18 @@ function subscribe () {
     updateSlamPoseUI()
   })
 
-  // TF camera_init → aft_mapped (fuente principal de pose en Point-LIO)
-  try {
-    const tfClient = new ROSLIB.TFClient({
-      ros,
-      fixedFrame: 'camera_init',
-      angularThres: 0.01,
-      transThres:   0.01,
-      rate:         10.0,
-    })
-    tfClient.subscribe('aft_mapped', tf => {
-      S.slamPose.x = tf.translation.x
-      S.slamPose.y = tf.translation.y
-      const q = tf.rotation
-      S.slamPose.theta = Math.atan2(2*(q.w*q.z + q.x*q.y), 1 - 2*(q.y*q.y + q.z*q.z)) * R2D
-      updateSlamPoseUI()
-    })
-  } catch (_) {}
+  // Point-LIO pose via /tf topic — subscribe directly, no tf2_web_republisher needed
+  sub('/tf', 'tf2_msgs/TFMessage', m => {
+    const tr = (m.transforms || []).find(t =>
+      t.header.frame_id === 'camera_init' && t.child_frame_id === 'aft_mapped')
+    if (!tr) return
+    const p = tr.transform.translation
+    S.slamPose.x = p.x
+    S.slamPose.y = p.y
+    const q = tr.transform.rotation
+    S.slamPose.theta = Math.atan2(2*(q.w*q.z + q.x*q.y), 1 - 2*(q.y*q.y + q.z*q.z)) * R2D
+    updateSlamPoseUI()
+  })
 
   // Barcode detection (std_msgs/String carrying JSON or plain barcode string)
   sub('/barcode/detection', 'std_msgs/String', m => {
