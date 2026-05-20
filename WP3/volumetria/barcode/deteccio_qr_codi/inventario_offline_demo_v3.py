@@ -41,7 +41,10 @@ DEBUG = False
 
 CARPETA_ENTRADA = Path("..") / ".." / "data" / "fotos_capturades"
 CARPETA_SORTIDA = "demo_output_detected"
-NOM_MANIFEST = "etiquetes_magatzem_simulades_manifest.csv"
+NOMS_MANIFEST = (
+    "etiquetes_magatzem_simulades_manifest.csv",
+    "etiquetes_magatzem_manifest.csv",
+)
 
 FRAME_INTERVAL_SECONDS = 0.5
 COOLDOWN_TANCAMENT = 4.0
@@ -91,6 +94,7 @@ class CodeRecord:
     primer_fitxer: str
     temps_simulat: float
     es_estanteria_valida: bool
+    es_producte_manifest: bool
     es_producte_sscc: bool
     es_producte_registrable: bool
     producte: str | None
@@ -118,6 +122,14 @@ def clau_ordenacio_natural(path: Path) -> list[object]:
     return [int(part) if part.isdigit() else part for part in parts]
 
 
+def es_fila_producte_registrable(categoria: str, valor: str) -> bool:
+    if categoria == "product":
+        return True
+    if categoria == "box" and valor.startswith("00"):
+        return True
+    return False
+
+
 def carregar_manifest(path_csv: Path) -> tuple[set[str], dict[str, str]]:
     if not path_csv.is_file():
         raise FileNotFoundError(
@@ -125,7 +137,7 @@ def carregar_manifest(path_csv: Path) -> tuple[set[str], dict[str, str]]:
         )
 
     estanteries_valides: set[str] = set()
-    sscc_a_producte: dict[str, str] = {}
+    codi_a_producte: dict[str, str] = {}
 
     with path_csv.open(newline="", encoding="utf-8") as fitxer:
         reader = csv.DictReader(fitxer)
@@ -137,16 +149,50 @@ def carregar_manifest(path_csv: Path) -> tuple[set[str], dict[str, str]]:
             )
 
         for row in reader:
-            categoria = row["category"].strip()
+            categoria = row["category"].strip().lower()
             valor = netejar_text_codi(row["encoded_value"])
-            nom = row["label_name"].strip()
+            nom = (
+                row.get("label_name", "").strip()
+                or row.get("product_code", "").strip()
+                or valor
+            )
+
+            if not valor:
+                continue
 
             if categoria == "shelf":
                 estanteries_valides.add(valor)
-            elif categoria == "box" and valor.startswith("00"):
-                sscc_a_producte[valor] = nom
+            elif es_fila_producte_registrable(categoria, valor):
+                codi_a_producte[valor] = nom
 
-    return estanteries_valides, sscc_a_producte
+    return estanteries_valides, codi_a_producte
+
+
+def carregar_manifests(paths_csv: list[Path]) -> tuple[set[str], dict[str, str]]:
+    estanteries_valides: set[str] = set()
+    codi_a_producte: dict[str, str] = {}
+
+    for path_csv in paths_csv:
+        estanteries, productes = carregar_manifest(path_csv)
+        estanteries_valides.update(estanteries)
+        codi_a_producte.update(productes)
+
+    return estanteries_valides, codi_a_producte
+
+
+def obtenir_paths_manifest(base_dir: Path) -> list[Path]:
+    if len(sys.argv) > 2:
+        raise RuntimeError(
+            "Uso: python inventario_offline_demo_v3.py [manifest.csv]"
+        )
+
+    if len(sys.argv) == 2:
+        manifest_arg = Path(sys.argv[1])
+        if not manifest_arg.is_absolute():
+            manifest_arg = base_dir / manifest_arg
+        return [manifest_arg]
+
+    return [base_dir / nom for nom in NOMS_MANIFEST]
 
 
 def obtenir_simbols_zbar():
@@ -487,16 +533,16 @@ def anotar_frame(frame: np.ndarray, deteccions: list[Detection]) -> np.ndarray:
 # 7. LOGICA DE INVENTARIO OFFLINE
 # ============================================================
 
-def crear_estat_inventari(estanteries_valides: set[str], sscc_a_producte: dict[str, str]):
+def crear_estat_inventari(estanteries_valides: set[str], codi_a_producte: dict[str, str]):
     return {
         "estanteria_actual": None,
         "temps_obertura": 0.0,
         "temps_tancament": -float("inf"),
         "productes_temporals": {},
-        "sscc_vistos_actuals": set(),
+        "codis_producte_vistos_actuals": set(),
         "inventari_global": {},
         "estanteries_valides": estanteries_valides,
-        "sscc_a_producte": sscc_a_producte,
+        "codi_a_producte": codi_a_producte,
         "codis_globals": {},
         "registre_codis": [],
         "frames_processats": 0,
@@ -515,12 +561,23 @@ def es_producte_sscc(det: Detection) -> bool:
     return det.text.startswith("00")
 
 
-def es_producte_registrable(det: Detection) -> bool:
-    return det.tipus == "CODE128" and det.text.startswith("00")
+def es_producte_manifest(det: Detection, estat: dict) -> bool:
+    return det.text in estat["codi_a_producte"]
 
 
-def producte_de_sscc(text: str, estat: dict) -> str:
-    return estat["sscc_a_producte"].get(text, f"SSCC no consta en manifest ({text})")
+def es_producte_registrable(det: Detection, estat: dict) -> bool:
+    return es_producte_manifest(det, estat) or (
+        det.tipus == "CODE128" and es_producte_sscc(det)
+    )
+
+
+def producte_de_codi(text: str, estat: dict) -> str:
+    producte = estat["codi_a_producte"].get(text)
+    if producte is not None:
+        return producte
+    if text.startswith("00"):
+        return f"SSCC no consta en manifest ({text})"
+    return f"Codigo de producto no consta en manifest ({text})"
 
 
 def registrar_codis_globals(
@@ -535,10 +592,11 @@ def registrar_codis_globals(
         if clau in estat["codis_globals"]:
             continue
 
-        producte = estat["sscc_a_producte"].get(det.text)
+        producte = estat["codi_a_producte"].get(det.text)
+        es_producte_en_manifest = es_producte_manifest(det, estat)
         consta_manifest = (
             det.text in estat["estanteries_valides"]
-            or det.text in estat["sscc_a_producte"]
+            or es_producte_en_manifest
         )
 
         registre = CodeRecord(
@@ -548,8 +606,9 @@ def registrar_codis_globals(
             primer_fitxer=nom_fitxer,
             temps_simulat=temps_actual,
             es_estanteria_valida=es_estanteria_valida(det, estat),
+            es_producte_manifest=es_producte_en_manifest,
             es_producte_sscc=es_producte_sscc(det),
-            es_producte_registrable=es_producte_registrable(det),
+            es_producte_registrable=es_producte_registrable(det, estat),
             producte=producte,
             consta_manifest=consta_manifest,
         )
@@ -561,11 +620,11 @@ def prioritat_inventari(det: Detection, estat: dict) -> int:
     if estat["estanteria_actual"] is None:
         if es_estanteria_valida(det, estat):
             return 0
-        if es_producte_registrable(det):
+        if es_producte_registrable(det, estat):
             return 1
         return 2
 
-    if es_producte_registrable(det):
+    if es_producte_registrable(det, estat):
         return 0
     if det.tipus == "CODE39" and det.text == estat["estanteria_actual"]:
         return 1
@@ -578,7 +637,7 @@ def obrir_estanteria(estat: dict, estanteria: str, temps_actual: float, index_fr
     estat["estanteria_actual"] = estanteria
     estat["temps_obertura"] = temps_actual
     estat["productes_temporals"] = {}
-    estat["sscc_vistos_actuals"] = set()
+    estat["codis_producte_vistos_actuals"] = set()
     print(f"[frame {index_frame:04d}] [+] abierta estanteria: {estanteria}")
 
 
@@ -616,30 +675,33 @@ def tancar_estanteria(
 
     estat["estanteria_actual"] = None
     estat["productes_temporals"] = {}
-    estat["sscc_vistos_actuals"] = set()
+    estat["codis_producte_vistos_actuals"] = set()
     estat["temps_tancament"] = temps_actual
 
 
 def registrar_producte_actual(estat: dict, det: Detection, index_frame: int) -> None:
     if estat["estanteria_actual"] is None:
         return
-    if not es_producte_registrable(det):
+    if not es_producte_registrable(det, estat):
         return
 
-    sscc = det.text
-    if sscc in estat["sscc_vistos_actuals"]:
+    codi_producte = det.text
+    if codi_producte in estat["codis_producte_vistos_actuals"]:
         if DEBUG:
-            print(f"[DEBUG] SSCC repetido en la transaccion, ignorado: {sscc}")
+            print(
+                "[DEBUG] Producto repetido en la transaccion, ignorado: "
+                f"{codi_producte}"
+            )
         return
 
-    producte = producte_de_sscc(sscc, estat)
-    estat["sscc_vistos_actuals"].add(sscc)
-    estat["productes_temporals"].setdefault(producte, set()).add(sscc)
+    producte = producte_de_codi(codi_producte, estat)
+    estat["codis_producte_vistos_actuals"].add(codi_producte)
+    estat["productes_temporals"].setdefault(producte, set()).add(codi_producte)
 
     if DEBUG:
         print(
             f"[DEBUG] Producto registrado frame {index_frame}: "
-            f"{producte} | {sscc} | estanteria {estat['estanteria_actual']}"
+            f"{producte} | {codi_producte} | estanteria {estat['estanteria_actual']}"
         )
 
 
@@ -698,14 +760,14 @@ def processar_imatges(
     entrada_dir: Path,
     sortida_dir: Path,
     estanteries_valides: set[str],
-    sscc_a_producte: dict[str, str],
+    codi_a_producte: dict[str, str],
 ) -> dict:
     imatges = llistar_imatges(entrada_dir)
     if not imatges:
         raise RuntimeError(f"No se encontraron imagenes en: {entrada_dir}")
 
     preparar_carpeta_sortida(sortida_dir)
-    estat = crear_estat_inventari(estanteries_valides, sscc_a_producte)
+    estat = crear_estat_inventari(estanteries_valides, codi_a_producte)
 
     for index_frame, image_path in enumerate(imatges, start=1):
         frame = llegir_imatge(image_path)
@@ -773,7 +835,9 @@ def imprimir_codis_detectats(estat: dict) -> None:
         print(f"  Tipo: {registre.tipus}")
         print(f"  Texto: {registre.text}")
         print(f"  Estanteria valida: {si_no(registre.es_estanteria_valida)}")
-        print(f"  Producto/SSCC: {si_no(registre.es_producte_sscc)}")
+        print(f"  Producto en manifest: {si_no(registre.es_producte_manifest)}")
+        print(f"  SSCC: {si_no(registre.es_producte_sscc)}")
+        print(f"  Producto registrable: {si_no(registre.es_producte_registrable)}")
         print(f"  Producto: {producte}")
         print(f"  Consta en manifest: {si_no(registre.consta_manifest)}")
         print(
@@ -802,7 +866,7 @@ def imprimir_resum_inventari(estat: dict) -> None:
             ssccs = sorted(productes[producte])
             print(f"  Producto: {producte}")
             print(f"  Cantidad: {len(ssccs)}")
-            print(f"  SSCC detectados: {', '.join(ssccs)}")
+            print(f"  Codigos detectados: {', '.join(ssccs)}")
 
 
 def imprimir_resum_general(estat: dict, sortida_dir: Path) -> None:
@@ -842,15 +906,15 @@ def main() -> int:
     base_dir = Path(__file__).resolve().parent
     entrada_dir = base_dir / CARPETA_ENTRADA
     sortida_dir = base_dir / CARPETA_SORTIDA
-    manifest_path = base_dir / NOM_MANIFEST
+    manifest_paths = obtenir_paths_manifest(base_dir)
 
     try:
-        estanteries_valides, sscc_a_producte = carregar_manifest(manifest_path)
+        estanteries_valides, codi_a_producte = carregar_manifests(manifest_paths)
         estat = processar_imatges(
             entrada_dir=entrada_dir,
             sortida_dir=sortida_dir,
             estanteries_valides=estanteries_valides,
-            sscc_a_producte=sscc_a_producte,
+            codi_a_producte=codi_a_producte,
         )
     except Exception as exc:
         print(f"Error: {exc}")
