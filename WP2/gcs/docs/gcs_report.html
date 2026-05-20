@@ -1,0 +1,752 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Drone GCS — Informe de Ejecución</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;900&family=JetBrains+Mono:wght@400;600&display=swap');
+
+  :root {
+    --bg: #ffffff;
+    --accent: #2563eb;
+    --accent2: #16a34a;
+    --warn: #d97706;
+    --danger: #dc2626;
+    --panel: #f8fafc;
+    --border: #e2e8f0;
+    --text: #1e293b;
+    --muted: #64748b;
+    --code-bg: #f1f5f9;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 14px;
+    color: var(--text);
+    background: #fff;
+    line-height: 1.65;
+    max-width: 860px;
+    margin: 0 auto;
+    padding: 48px 40px;
+  }
+
+  /* ── Cover ── */
+  .cover {
+    text-align: center;
+    padding: 60px 0 50px;
+    border-bottom: 3px solid var(--accent);
+    margin-bottom: 48px;
+  }
+  .cover .tag {
+    display: inline-block;
+    background: var(--accent);
+    color: #fff;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    padding: 4px 14px;
+    border-radius: 20px;
+    margin-bottom: 18px;
+  }
+  .cover h1 {
+    font-size: 38px;
+    font-weight: 900;
+    letter-spacing: -1px;
+    color: #0f172a;
+    line-height: 1.15;
+    margin-bottom: 8px;
+  }
+  .cover h1 span { color: var(--accent); }
+  .cover .subtitle {
+    font-size: 16px;
+    color: var(--muted);
+    font-weight: 400;
+    margin-bottom: 28px;
+  }
+  .cover .meta-grid {
+    display: inline-grid;
+    grid-template-columns: repeat(3, auto);
+    gap: 0 32px;
+    text-align: left;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 24px;
+  }
+  .cover .meta-grid .mk { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .8px; }
+  .cover .meta-grid .mv { font-size: 13px; font-weight: 600; color: var(--text); margin-top: 2px; }
+
+  /* ── Section headings ── */
+  h2 {
+    font-size: 22px;
+    font-weight: 800;
+    color: #0f172a;
+    margin: 42px 0 14px;
+    padding-bottom: 8px;
+    border-bottom: 2px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  h2 .num {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px; height: 28px;
+    background: var(--accent);
+    color: #fff;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 800;
+    flex-shrink: 0;
+  }
+  h3 {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--text);
+    margin: 22px 0 8px;
+  }
+
+  /* ── Body text ── */
+  p { margin-bottom: 12px; }
+  p + p { margin-top: 0; }
+
+  /* ── Info boxes ── */
+  .box {
+    border-radius: 8px;
+    padding: 14px 18px;
+    margin: 16px 0;
+    border-left: 4px solid;
+  }
+  .box.info   { background: #eff6ff; border-color: var(--accent); }
+  .box.ok     { background: #f0fdf4; border-color: var(--accent2); }
+  .box.warn   { background: #fffbeb; border-color: var(--warn); }
+  .box.danger { background: #fef2f2; border-color: var(--danger); }
+  .box strong { display: block; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .6px; margin-bottom: 4px; color: inherit; }
+  .box.info   strong { color: var(--accent); }
+  .box.ok     strong { color: var(--accent2); }
+  .box.warn   strong { color: var(--warn); }
+  .box.danger strong { color: var(--danger); }
+
+  /* ── Code ── */
+  code {
+    font-family: 'JetBrains Mono', 'Courier New', monospace;
+    font-size: 12px;
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1px 6px;
+  }
+  pre {
+    font-family: 'JetBrains Mono', 'Courier New', monospace;
+    font-size: 12px;
+    background: #0f172a;
+    color: #e2e8f0;
+    border-radius: 8px;
+    padding: 16px 20px;
+    overflow-x: auto;
+    margin: 14px 0;
+    line-height: 1.6;
+  }
+  pre .c { color: #64748b; }
+  pre .k { color: #93c5fd; }
+  pre .s { color: #86efac; }
+  pre .f { color: #fde68a; }
+
+  /* ── Tables ── */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+    margin: 14px 0;
+  }
+  th {
+    background: #f1f5f9;
+    text-align: left;
+    padding: 8px 12px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .5px;
+    color: var(--muted);
+    border-bottom: 2px solid var(--border);
+  }
+  td {
+    padding: 7px 12px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  tr:last-child td { border-bottom: none; }
+  tr:nth-child(even) td { background: #fafbfc; }
+  td code { border: none; background: none; padding: 0; font-size: 12px; color: #0f172a; }
+
+  /* ── Status badges ── */
+  .badge {
+    display: inline-block;
+    padding: 2px 9px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: .3px;
+  }
+  .badge.ok     { background: #dcfce7; color: #16a34a; }
+  .badge.warn   { background: #fef9c3; color: #a16207; }
+  .badge.future { background: #ede9fe; color: #7c3aed; }
+  .badge.info   { background: #dbeafe; color: #1d4ed8; }
+
+  /* ── Architecture diagram ── */
+  .arch {
+    background: #0f172a;
+    border-radius: 10px;
+    padding: 24px 28px;
+    margin: 18px 0;
+    color: #e2e8f0;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    line-height: 2;
+  }
+  .arch .box-node {
+    display: inline-block;
+    border: 1px solid #334155;
+    border-radius: 5px;
+    padding: 3px 10px;
+    margin: 2px;
+    background: #1e293b;
+  }
+  .arch .box-node.blue  { border-color: #3b82f6; color: #93c5fd; }
+  .arch .box-node.green { border-color: #22c55e; color: #86efac; }
+  .arch .box-node.amber { border-color: #f59e0b; color: #fde68a; }
+  .arch .box-node.red   { border-color: #ef4444; color: #fca5a5; }
+  .arch .arrow { color: #475569; }
+
+  /* ── Tab panels ── */
+  .tab-card {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+    margin: 14px 0;
+  }
+  .tab-card .tab-header {
+    background: var(--panel);
+    padding: 10px 16px;
+    font-weight: 700;
+    font-size: 13px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .tab-card .tab-header .dot {
+    width: 8px; height: 8px; border-radius: 50%;
+  }
+  .tab-card .dot.blue  { background: var(--accent); }
+  .tab-card .dot.green { background: var(--accent2); }
+  .tab-card .dot.amber { background: var(--warn); }
+  .tab-card .dot.purple { background: #7c3aed; }
+  .tab-card .tab-body { padding: 14px 16px; }
+
+  /* ── Checklist ── */
+  .check-list { list-style: none; }
+  .check-list li {
+    padding: 5px 0;
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    border-bottom: 1px solid var(--border);
+  }
+  .check-list li:last-child { border-bottom: none; }
+  .check-list .icon { flex-shrink: 0; font-size: 15px; line-height: 1.5; }
+
+  /* ── Flow steps ── */
+  .flow {
+    counter-reset: flow;
+    margin: 14px 0;
+  }
+  .flow-step {
+    display: flex;
+    gap: 14px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border);
+    align-items: flex-start;
+  }
+  .flow-step:last-child { border-bottom: none; }
+  .flow-step .fn {
+    flex-shrink: 0;
+    width: 26px; height: 26px;
+    background: var(--accent);
+    color: #fff;
+    border-radius: 50%;
+    font-size: 12px;
+    font-weight: 800;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-top: 2px;
+  }
+
+  /* ── Page break hints for PDF ── */
+  @media print {
+    body { padding: 0; max-width: 100%; }
+    h2 { page-break-before: always; }
+    h2:first-of-type { page-break-before: avoid; }
+    .cover { page-break-after: always; }
+    pre, table, .tab-card, .arch { page-break-inside: avoid; }
+  }
+
+  /* ── Footer ── */
+  .footer {
+    margin-top: 60px;
+    padding-top: 18px;
+    border-top: 1px solid var(--border);
+    font-size: 12px;
+    color: var(--muted);
+    display: flex;
+    justify-content: space-between;
+  }
+</style>
+</head>
+<body>
+
+<!-- ══ COVER ══ -->
+<div class="cover">
+  <div class="tag">PAE-EDISA 2026 · WP2</div>
+  <h1>Drone <span>GCS</span></h1>
+  <div class="subtitle">Ground Control Station — Informe de Ejecución y Descripción Técnica</div>
+  <div class="meta-grid">
+    <div><div class="mk">Proyecto</div><div class="mv">PAE-EDISA 2026</div></div>
+    <div><div class="mk">Versión App</div><div class="mv">1.0.0</div></div>
+    <div><div class="mk">Fecha</div><div class="mv">Mayo 2026</div></div>
+    <div><div class="mk">Plataforma</div><div class="mv">Electron / Node.js</div></div>
+    <div><div class="mk">Comunicación</div><div class="mv">ROS2 Jazzy via rosbridge</div></div>
+    <div><div class="mk">Drone</div><div class="mv">Hexarotor (PX4)</div></div>
+  </div>
+</div>
+
+<!-- ══ 1. INTRODUCCIÓN ══ -->
+<h2><span class="num">1</span> ¿Qué es el Drone GCS?</h2>
+
+<p>
+  El <strong>Drone GCS</strong> (Ground Control Station) es una aplicación de escritorio que actúa como
+  <em>panel de control</em> en tiempo real para un dron hexarotor. Desde una sola ventana, el operador
+  puede ver el estado del dron, el vídeo de las cámaras, el mapa de navegación, los datos de los sensores
+  y los resultados del procesamiento de imágenes (códigos de barras, volumetría).
+</p>
+
+<p>
+  La aplicación corre en <strong>Windows/Linux/Mac</strong> mediante <strong>Electron</strong> (el mismo
+  motor que VSCode) y se comunica con el dron a través de la red WiFi local, utilizando el protocolo
+  <strong>ROS2</strong> (Robot Operating System) como capa de mensajería.
+</p>
+
+<div class="box info">
+  <strong>¿Para quién es este documento?</strong>
+  Está pensado para cualquier miembro del equipo con conocimientos básicos de informática. No se necesita
+  experiencia previa en robótica ni en sistemas embebidos para entender la arquitectura y el funcionamiento.
+</div>
+
+<!-- ══ 2. ARQUITECTURA ══ -->
+<h2><span class="num">2</span> Arquitectura del Sistema</h2>
+
+<p>El sistema completo tiene dos piezas principales que se comunican por WiFi:</p>
+
+<div class="arch">
+<span style="color:#94a3b8">┌─────────────────────────────────────┐  WiFi  ┌───────────────────────────────┐</span>
+<br><span style="color:#94a3b8">│</span>  <span class="box-node blue">PC del operador</span>                      <span style="color:#94a3b8">│◄──────►│</span>  <span class="box-node green">Raspberry Pi 5</span>              <span style="color:#94a3b8">│</span>
+<br><span style="color:#94a3b8">│                                     │        │                               │</span>
+<br><span style="color:#94a3b8">│</span>  <span class="box-node blue">Electron (Drone GCS app)</span>            <span style="color:#94a3b8">│</span>        <span style="color:#94a3b8">│</span>  <span class="box-node green">ROS2 Jazzy</span>                  <span style="color:#94a3b8">│</span>
+<br><span style="color:#94a3b8">│  ┌──────────────────────────────┐   │</span>  <span class="arrow">:9090</span> <span style="color:#94a3b8">│</span>  <span class="box-node green">rosbridge (WebSocket)</span>        <span style="color:#94a3b8">│</span>
+<br><span style="color:#94a3b8">│  │</span> <span style="color:#93c5fd">roslib.js (cliente ROS)</span>      <span style="color:#94a3b8">│◄──────►│</span>  <span class="box-node amber">camera_publisher.py</span>          <span style="color:#94a3b8">│</span>
+<br><span style="color:#94a3b8">│  │</span> <span style="color:#93c5fd">Canvas 2D (instrumentos)</span>     <span style="color:#94a3b8">│</span>        <span style="color:#94a3b8">│</span>  <span class="box-node amber">mjpeg_server.py  :8080</span>       <span style="color:#94a3b8">│</span>
+<br><span style="color:#94a3b8">│  └──────────────────────────────┘   │</span>  <span class="arrow">:8080</span> <span style="color:#94a3b8">│</span>  <span class="box-node red">PX4 (FC) via MAVROS</span>          <span style="color:#94a3b8">│</span>
+<br><span style="color:#94a3b8">└─────────────────────────────────────┘        └───────────────────────────────┘</span>
+</div>
+
+<h3>¿Qué hace cada componente?</h3>
+
+<table>
+  <thead><tr><th>Componente</th><th>Dónde corre</th><th>Función</th></tr></thead>
+  <tbody>
+    <tr><td><strong>Drone GCS App</strong></td><td>PC operador</td><td>Interfaz gráfica — muestra todos los datos, vídeo y controles</td></tr>
+    <tr><td><code>rosbridge</code></td><td>Raspberry Pi</td><td>Traduce mensajes ROS2 a WebSocket (lenguaje que entiende el navegador)</td></tr>
+    <tr><td><code>camera_publisher.py</code></td><td>Raspberry Pi</td><td>Lee la cámara y publica fotogramas como topic ROS2</td></tr>
+    <tr><td><code>mjpeg_server.py</code></td><td>Raspberry Pi</td><td>Servidor HTTP de vídeo (MJPEG) para el panel principal</td></tr>
+    <tr><td><strong>PX4 + MAVROS</strong></td><td>Flight Controller</td><td>Autopilot del dron; MAVROS lo expone como topics ROS2</td></tr>
+  </tbody>
+</table>
+
+<!-- ══ 3. INTERFAZ ══ -->
+<h2><span class="num">3</span> Interfaz de Usuario</h2>
+
+<p>
+  La aplicación tiene <strong>cuatro pestañas</strong>, seleccionables en la barra superior.
+  En la misma barra aparece el estado de conexión (punto verde/rojo), la URL del servidor
+  ROS y las insignias de estado del dron (armado, modo de vuelo, GPS).
+</p>
+
+<div class="tab-card">
+  <div class="tab-header"><div class="dot blue"></div> Dashboard</div>
+  <div class="tab-body">
+    <p>Vista principal de vuelo, dividida en tres columnas:</p>
+    <ul style="padding-left:18px;line-height:2">
+      <li><strong>Izquierda:</strong> velocímetro animado, altitud, heading, batería, modo/armado, coordenadas GPS.</li>
+      <li><strong>Centro:</strong> feed de vídeo de la cámara frontal (MJPEG directo desde la Pi).</li>
+      <li><strong>Derecha:</strong> mapa de navegación con trayectoria GPS + tabla de códigos de barras escaneados.</li>
+    </ul>
+    <p>El <strong>diagrama hexarotor</strong> en la zona inferior de la cámara muestra en tiempo real el empuje (%) de cada uno de los 6 motores con arcos de color.</p>
+  </div>
+</div>
+
+<div class="tab-card">
+  <div class="tab-header"><div class="dot amber"></div> Navigation</div>
+  <div class="tab-body">
+    <p>Instrumentos de pilotaje clásicos:</p>
+    <ul style="padding-left:18px;line-height:2">
+      <li><strong>Horizonte artificial</strong> — muestra roll y pitch con cielo/tierra animados.</li>
+      <li><strong>Brújula</strong> — aguja roja apuntando al norte magnético.</li>
+      <li><strong>Panel de datos</strong> — velocidad, velocidad vertical, altitud, ángulos de Euler, GPS completo, temporizador de vuelo.</li>
+      <li><strong>Gráficas en tiempo real</strong> — altitud, velocidad y velocidad vertical (últimos 120 puntos).</li>
+    </ul>
+  </div>
+</div>
+
+<div class="tab-card">
+  <div class="tab-header"><div class="dot purple"></div> SLAM</div>
+  <div class="tab-body">
+    <p>Mapa de ocupación generado por SLAM Toolbox + overlay del LiDAR:</p>
+    <ul style="padding-left:18px;line-height:2">
+      <li>Mapa de celdas ocupadas/libres (<code>/map</code>) renderizado célula a célula.</li>
+      <li>Nube de puntos del LiDAR (<code>/scan</code>) superpuesta en la pose actual del robot.</li>
+      <li>Panel lateral con pose X/Y/θ, dimensiones del mapa, resolución, rangos del LiDAR y contador de loop closures.</li>
+    </ul>
+  </div>
+</div>
+
+<div class="tab-card">
+  <div class="tab-header"><div class="dot green"></div> Image Processing</div>
+  <div class="tab-body">
+    <p>Análisis visual de las dos cámaras:</p>
+    <ul style="padding-left:18px;line-height:2">
+      <li><strong>Cam 1 (frontal)</strong> y <strong>Cam 2 (inferior)</strong> en tiempo real via ROS CompressedImage.</li>
+      <li>Tabla de detecciones (códigos de barras, objetos) con etiqueta, ID, confianza y timestamp.</li>
+      <li>Log de inserciones en base de datos.</li>
+      <li>Panel de <strong>volumetría</strong>: dimensiones y volumen del último objeto detectado, historial.</li>
+    </ul>
+  </div>
+</div>
+
+<!-- ══ 4. FLUJO DE DATOS ══ -->
+<h2><span class="num">4</span> Flujo de Datos en Tiempo Real</h2>
+
+<p>
+  Todos los datos del dron llegan a la aplicación como <strong>topics ROS2</strong>, que son como "canales
+  de radio" con nombre donde cada sensor/módulo publica sus medidas. La app se suscribe a estos canales
+  y actualiza la interfaz al instante.
+</p>
+
+<div class="flow">
+  <div class="flow-step">
+    <div class="fn">1</div>
+    <div>
+      <strong>Sensor → PX4/MAVROS</strong><br>
+      El autopilot publica datos de vuelo (velocidad, altitud, batería, actitud, GPS) como topics
+      <code>/mavros/...</code> en ROS2.
+    </div>
+  </div>
+  <div class="flow-step">
+    <div class="fn">2</div>
+    <div>
+      <strong>ROS2 → rosbridge → WebSocket</strong><br>
+      rosbridge escucha en el puerto <code>9090</code> de la Raspberry Pi y convierte cada mensaje ROS2
+      a JSON que viaja por la red WiFi.
+    </div>
+  </div>
+  <div class="flow-step">
+    <div class="fn">3</div>
+    <div>
+      <strong>WebSocket → roslib.js → estado <code>S</code></strong><br>
+      La librería roslib.js en la app recibe el JSON, deserializa el mensaje y llama al callback
+      correspondiente, que actualiza el objeto de estado global <code>S</code>.
+    </div>
+  </div>
+  <div class="flow-step">
+    <div class="fn">4</div>
+    <div>
+      <strong>Estado <code>S</code> → Canvas 2D → pantalla</strong><br>
+      Un bucle de animación (<code>requestAnimationFrame</code>, ~60 fps) lee <code>S</code> y redibuja
+      todos los instrumentos: velocímetro, batería, mapa, SLAM, gráficas, diagrama de motores.
+    </div>
+  </div>
+  <div class="flow-step">
+    <div class="fn">5</div>
+    <div>
+      <strong>Cámara (ruta paralela)</strong><br>
+      El vídeo toma dos caminos independientes: MJPEG directo vía HTTP (panel principal, baja latencia)
+      y topic ROS <code>CompressedImage</code> via rosbridge (pestaña Image Processing, sincronizado con ROS).
+    </div>
+  </div>
+</div>
+
+<h3>Topics ROS2 suscritos</h3>
+<table>
+  <thead><tr><th>Topic</th><th>Dato</th><th>Usado en</th></tr></thead>
+  <tbody>
+    <tr><td><code>/mavros/vfr_hud</code></td><td>Velocidad aérea, climb rate, heading</td><td>Dashboard, Navigation</td></tr>
+    <tr><td><code>/mavros/altitude</code></td><td>Altitud relativa</td><td>Dashboard, Navigation</td></tr>
+    <tr><td><code>/mavros/battery</code></td><td>Batería %, voltaje</td><td>Dashboard</td></tr>
+    <tr><td><code>/mavros/imu/data</code></td><td>Actitud (quaternion → roll/pitch/yaw)</td><td>Navigation (horizonte, brújula)</td></tr>
+    <tr><td><code>/mavros/state</code></td><td>Armado, modo de vuelo</td><td>Topbar, Dashboard, Navigation</td></tr>
+    <tr><td><code>/mavros/rc/out</code></td><td>PWM motores (1–6)</td><td>Diagrama hexarotor</td></tr>
+    <tr><td><code>/mavros/global_position/global</code></td><td>GPS lat/lon/alt + trayectoria</td><td>Mapa, Dashboard</td></tr>
+    <tr><td><code>/scan</code></td><td>Nube de puntos LiDAR</td><td>SLAM overlay</td></tr>
+    <tr><td><code>/map</code></td><td>Mapa de ocupación SLAM</td><td>SLAM canvas</td></tr>
+    <tr><td><code>/slam_toolbox/pose</code></td><td>Pose estimada (X, Y, θ)</td><td>SLAM panel lateral</td></tr>
+    <tr><td><code>/camera/forward/image_raw/compressed</code></td><td>Cámara frontal (JPEG)</td><td>Dashboard + Image Processing Cam1</td></tr>
+    <tr><td><code>/camera/down/image_raw/compressed</code></td><td>Cámara inferior (JPEG)</td><td>Image Processing Cam2</td></tr>
+    <tr><td><code>/barcode/detection</code></td><td>Código de barras detectado (JSON)</td><td>DB tabla, Image Processing log</td></tr>
+    <tr><td><code>/detection/volume</code></td><td>Volumetría del objeto (JSON)</td><td>Panel Volumetría</td></tr>
+  </tbody>
+</table>
+
+<!-- ══ 5. CÁMARA ══ -->
+<h2><span class="num">5</span> Sistema de Cámaras</h2>
+
+<p>
+  El dron lleva <strong>dos cámaras Pi Camera Module</strong>:
+  una <strong>frontal</strong> (orientada hacia adelante, seguimiento de obstáculos y navegación)
+  y una <strong>inferior</strong> (apuntando hacia abajo, detección de códigos de barras y volumetría).
+</p>
+
+<h3>Publicación en la Raspberry Pi</h3>
+<p>
+  El script <code>camera_publisher.py</code> usa la librería <strong>picamera2</strong> (específica
+  de Pi Camera Module) para capturar fotogramas. Cada frame se comprime a JPEG y se publica
+  como mensaje ROS2 de tipo <code>sensor_msgs/CompressedImage</code>.
+</p>
+
+<div class="box ok">
+  <strong>¿Por qué picamera2 y no OpenCV VideoCapture?</strong>
+  Las cámaras CSI de Raspberry Pi (IMX708) usan el stack libcamera, incompatible con la interfaz
+  V4L2 estándar que utiliza OpenCV. picamera2 es la librería oficial para acceder a estas cámaras
+  correctamente en Raspberry Pi OS.
+</div>
+
+<pre><span class="c"># Lanzar cámara frontal (dispositivo 0)</span>
+<span class="f">python3</span> camera_publisher.py <span class="s">--ros-args</span> \
+  -p device:=0 -p fps:=30 -p width:=640 -p height:=480
+
+<span class="c"># Lanzar cámara inferior (dispositivo 1)</span>
+<span class="f">python3</span> camera_publisher.py <span class="s">--ros-args</span> \
+  -p device:=1 -p topic:=/camera/down/image_raw/compressed</pre>
+
+<h3>Recepción en la App (dos vías)</h3>
+<table>
+  <thead><tr><th>Vía</th><th>Protocolo</th><th>Latencia</th><th>Dónde se usa</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><strong>MJPEG directo</strong></td>
+      <td>HTTP (<code>mjpeg_server.py</code> puerto 8080)</td>
+      <td>Muy baja</td>
+      <td>Dashboard — panel central grande</td>
+    </tr>
+    <tr>
+      <td><strong>ROS CompressedImage</strong></td>
+      <td>rosbridge WebSocket → roslib.js → Canvas</td>
+      <td>Media</td>
+      <td>Image Processing — Cam1 y Cam2</td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- ══ 6. CONEXIÓN ══ -->
+<h2><span class="num">6</span> Conexión App ↔ Raspberry Pi</h2>
+
+<h3>Pasos para conectar</h3>
+
+<div class="flow">
+  <div class="flow-step">
+    <div class="fn">1</div>
+    <div>
+      <strong>Raspberry Pi y PC en la misma red WiFi</strong><br>
+      Conectar ambos dispositivos al mismo punto de acceso. La Pi tiene IP estática o dinámica
+      (típicamente en el rango <code>10.4.91.x</code> o <code>192.168.x.x</code>).
+    </div>
+  </div>
+  <div class="flow-step">
+    <div class="fn">2</div>
+    <div>
+      <strong>Lanzar servicios en la Pi</strong>
+      <pre style="margin-top:8px"><span class="f">./start_gcs.sh</span>    <span class="c"># inicia rosbridge + camera_publisher</span></pre>
+    </div>
+  </div>
+  <div class="flow-step">
+    <div class="fn">3</div>
+    <div>
+      <strong>Abrir la app y conectar</strong><br>
+      Clicar en la URL de la barra superior → aparece el popover de conexión.
+      Introducir <code>ws://&lt;IP de la Pi&gt;:9090</code> o usar el botón
+      <em>"Scan network for Raspberry Pi"</em> para detectarla automáticamente.
+    </div>
+  </div>
+  <div class="flow-step">
+    <div class="fn">4</div>
+    <div>
+      <strong>Punto verde = conectado</strong><br>
+      El punto de la barra superior se pone verde. La URL se guarda en memoria local
+      para la próxima sesión.
+    </div>
+  </div>
+</div>
+
+<h3>Escáner de red automático</h3>
+<p>
+  Si no se conoce la IP, el botón de escaneo prueba <strong>todas las IPs de la subred /24</strong>
+  (254 hosts) en paralelo con 40 conexiones simultáneas y timeout de 400 ms. Detecta la IP local
+  del PC vía WebRTC para determinar qué subred escanear. El escaneo completo tarda
+  aproximadamente <strong>3–4 segundos</strong>.
+</p>
+
+<!-- ══ 7. SCRIPTS RASPBERRY PI ══ -->
+<h2><span class="num">7</span> Scripts de la Raspberry Pi</h2>
+
+<table>
+  <thead><tr><th>Archivo</th><th>Función</th><th>Puerto / Topic</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><code>start_gcs.sh</code></td>
+      <td>Script maestro: lanza rosbridge + camera_publisher. Gestiona PIDs y limpieza al salir con Ctrl+C.</td>
+      <td>—</td>
+    </tr>
+    <tr>
+      <td><code>camera_publisher.py</code></td>
+      <td>Nodo ROS2. Lee picamera2, publica JPEG a 30 fps. Parámetros: device, topic, fps, width, height, jpeg_quality.</td>
+      <td><code>/camera/forward/…</code> <code>/camera/down/…</code></td>
+    </tr>
+    <tr>
+      <td><code>mjpeg_server.py</code></td>
+      <td>Servidor Flask MJPEG. No requiere ROS. Útil para streaming de baja latencia en el dashboard.</td>
+      <td><code>:8080/cam1</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="box warn">
+  <strong>Nota sobre rosbridge</strong>
+  El paquete <code>ros-jazzy-rosbridge-suite</code> no está disponible vía apt en mayo 2026.
+  Se compiló desde el código fuente (Release 2.3.0) en <code>~/rosbridge_ws</code> en la Pi.
+  Para activarlo: <code>source ~/rosbridge_ws/install/setup.bash</code> antes de lanzar.
+</div>
+
+<!-- ══ 8. INSTALACIÓN / ARRANQUE ══ -->
+<h2><span class="num">8</span> Instalación y Arranque</h2>
+
+<h3>En el PC (app)</h3>
+<pre><span class="c"># Requisito: Node.js ≥ 20 instalado</span>
+<span class="f">git</span> clone https://github.com/clarajorba/PAE-EDISA-2026.git
+<span class="f">cd</span> PAE-EDISA-2026/WP2/gcs
+<span class="f">npm</span> install
+<span class="f">npm</span> start          <span class="c"># abre la ventana GCS</span>
+
+<span class="c"># Para generar instalador (.exe / .AppImage):</span>
+<span class="f">npm</span> run build      <span class="c"># → dist/Drone GCS Setup 1.0.0.exe</span></pre>
+
+<h3>En la Raspberry Pi</h3>
+<pre><span class="c"># Requisitos: ROS2 Jazzy, picamera2, flask, opencv-python</span>
+<span class="c"># 1. Activar ROS2 + rosbridge</span>
+<span class="k">source</span> /opt/ros/jazzy/setup.bash
+<span class="k">source</span> ~/rosbridge_ws/install/setup.bash
+
+<span class="c"># 2. Lanzar todo</span>
+<span class="f">cd</span> ~/PAE-EDISA-2026/WP2/gcs/raspberry
+<span class="f">./start_gcs.sh</span>    <span class="c"># rosbridge :9090 + cámara</span>
+
+<span class="c"># Opcionalmente, lanzar el servidor MJPEG en paralelo:</span>
+<span class="f">python3</span> mjpeg_server.py   <span class="c"># :8080/cam1</span></pre>
+
+<!-- ══ 9. ESTADO ACTUAL ══ -->
+<h2><span class="num">9</span> Estado Actual y Próximos Pasos</h2>
+
+<table>
+  <thead><tr><th>Funcionalidad</th><th>Estado</th><th>Notas</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>Conexión rosbridge WiFi</td>
+      <td><span class="badge ok">Operativo</span></td>
+      <td>Conectado a <code>ws://10.4.91.89:9090</code></td>
+    </tr>
+    <tr>
+      <td>Streaming cámara frontal (MJPEG)</td>
+      <td><span class="badge ok">Operativo</span></td>
+      <td>Dashboard panel central, baja latencia</td>
+    </tr>
+    <tr>
+      <td>Streaming cámara frontal (ROS)</td>
+      <td><span class="badge ok">Operativo</span></td>
+      <td>Image Processing Cam1 — LIVE confirmado</td>
+    </tr>
+    <tr>
+      <td>Streaming cámara inferior (ROS)</td>
+      <td><span class="badge ok">Operativo</span></td>
+      <td>Image Processing Cam2 — conectada con device:=1</td>
+    </tr>
+    <tr>
+      <td>Telemetría MAVROS (speed, alt, bat, GPS)</td>
+      <td><span class="badge info">Preparado</span></td>
+      <td>Código listo; requiere PX4 + MAVROS activos en la Pi</td>
+    </tr>
+    <tr>
+      <td>SLAM (mapa + LiDAR)</td>
+      <td><span class="badge info">Preparado</span></td>
+      <td>UI implementada; requiere <code>/scan</code> y <code>/map</code> de SLAM Toolbox</td>
+    </tr>
+    <tr>
+      <td>Control de movimiento</td>
+      <td><span class="badge future">Próximo</span></td>
+      <td>Publicación a topics <code>/mavros/setpoint_*</code> o RC override</td>
+    </tr>
+    <tr>
+      <td>Detección barcodes / volumetría</td>
+      <td><span class="badge future">Próximo</span></td>
+      <td>UI lista; requiere nodos de visión publicando <code>/barcode/detection</code>, <code>/detection/volume</code></td>
+    </tr>
+    <tr>
+      <td>Instalador Windows (.exe)</td>
+      <td><span class="badge ok">Generado</span></td>
+      <td><code>dist/Drone GCS Setup 1.0.0.exe</code></td>
+    </tr>
+    <tr>
+      <td>Repositorio GitHub</td>
+      <td><span class="badge ok">Publicado</span></td>
+      <td><code>PAE-EDISA-2026/WP2/gcs</code> — rama main</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>Próximas implementaciones previstas</h3>
+<ul class="check-list">
+  <li><span class="icon">🎮</span><div><strong>Control de movimiento</strong> — Panel de comandos para enviar waypoints y ordenes de vuelo (armado, despegue, aterrizaje, posición) publicando a topics MAVROS.</div></li>
+  <li><span class="icon">🗺️</span><div><strong>SLAM con LiDAR real</strong> — Integración con SLAM Toolbox en la Pi para generar mapas de ocupación en tiempo real y localización del dron.</div></li>
+  <li><span class="icon">📦</span><div><strong>Detección de objetos y barcodes</strong> — Nodos de visión que publiquen a <code>/barcode/detection</code> y <code>/detection/volume</code> para alimentar las tablas de la app.</div></li>
+  <li><span class="icon">📡</span><div><strong>Gestión de waypoints</strong> — Visualización y edición de misiones en el mapa de navegación.</div></li>
+</ul>
+
+<!-- ══ FOOTER ══ -->
+<div class="footer">
+  <span>PAE-EDISA 2026 · WP2 — Drone GCS</span>
+  <span>Generado Mayo 2026</span>
+</div>
+
+<script>
+  // Print-to-PDF hint
+  window.addEventListener('load', () => {
+    const hint = document.createElement('div')
+    hint.style.cssText = 'position:fixed;bottom:16px;right:16px;background:#1e293b;color:#e2e8f0;font-size:12px;padding:8px 14px;border-radius:6px;z-index:999;font-family:monospace;opacity:.9'
+    hint.textContent = '🖨  Ctrl+P → Guardar como PDF'
+    document.body.appendChild(hint)
+    setTimeout(() => hint.remove(), 5000)
+  })
+</script>
+</body>
+</html>

@@ -251,6 +251,141 @@ function sub (name, type, cb) {
   return t
 }
 
+// ── ROS service / publish helpers ─────────────────────────────────────────────
+function rosService (name, type, req, cb) {
+  if (!ros) return
+  const svc = new ROSLIB.Service({ ros, name, serviceType: type })
+  svc.callService(new ROSLIB.ServiceRequest(req), cb || (() => {}))
+}
+
+function rosPub (name, type, msg) {
+  if (!ros) return
+  const t = new ROSLIB.Topic({ ros, name, messageType: type })
+  t.publish(new ROSLIB.Message(msg))
+}
+
+// ── command log ───────────────────────────────────────────────────────────────
+function addCmdLog (cmd, result) {
+  const lastEl = $('cmd-last')
+  if (lastEl) {
+    lastEl.textContent = cmd
+    lastEl.style.color = result === 'FAIL' ? 'var(--danger)'
+                       : result === 'SENT' ? 'var(--accent)' : 'var(--ok)'
+  }
+  const log = $('cmd-log')
+  if (!log) return
+  const cls = result === 'OK' ? 'clok' : result === 'FAIL' ? 'clfail'
+            : result === 'SENT' ? 'clsent' : 'clwarn'
+  const row = document.createElement('div')
+  row.className = 'cmd-log-row'
+  row.innerHTML = `<span class="clt">${now()}</span><span class="${cls}">${cmd} → ${result}</span>`
+  log.prepend(row)
+  while (log.children.length > 25) log.removeChild(log.lastChild)
+}
+
+// ── drone commands ────────────────────────────────────────────────────────────
+let _armPendingTs = 0
+function cmdArm () {
+  const t = Date.now()
+  if (t - _armPendingTs < 800) {
+    _armPendingTs = 0
+    rosService('/mavros/cmd/arming', 'mavros_msgs/CommandBool', { value: true },
+      r => addCmdLog('ARM', r && r.success ? 'OK' : 'FAIL'))
+  } else {
+    _armPendingTs = t
+    addCmdLog('ARM', 'click again to confirm')
+  }
+}
+
+function cmdDisarm () {
+  rosService('/mavros/cmd/arming', 'mavros_msgs/CommandBool', { value: false },
+    r => addCmdLog('DISARM', r && r.success ? 'OK' : 'FAIL'))
+}
+
+function cmdSetMode (mode) {
+  rosService('/mavros/set_mode', 'mavros_msgs/SetMode', { custom_mode: mode },
+    r => addCmdLog('MODE ' + mode, r && r.mode_sent ? 'OK' : 'FAIL'))
+}
+
+function cmdTakeoff () {
+  const alt = parseFloat($('tkoff-alt').value) || 5
+  rosService('/mavros/cmd/takeoff', 'mavros_msgs/CommandTOL',
+    { min_pitch: 0, yaw: 0, latitude: 0, longitude: 0, altitude: alt },
+    r => addCmdLog('TAKEOFF ' + alt + 'm', r && r.success ? 'OK' : 'FAIL'))
+}
+
+function cmdLand () {
+  rosService('/mavros/cmd/land', 'mavros_msgs/CommandTOL',
+    { min_pitch: 0, yaw: 0, latitude: 0, longitude: 0, altitude: 0 },
+    r => addCmdLog('LAND', r && r.success ? 'OK' : 'FAIL'))
+}
+
+function cmdGoto () {
+  const x = parseFloat($('sp-x').value) || 0
+  const y = parseFloat($('sp-y').value) || 0
+  const z = parseFloat($('sp-z').value) || 5
+  rosPub('/mavros/setpoint_position/local', 'geometry_msgs/PoseStamped', {
+    header: { seq: 0, stamp: { secs: 0, nsecs: 0 }, frame_id: 'map' },
+    pose: {
+      position:    { x, y, z },
+      orientation: { x: 0, y: 0, z: 0, w: 1 },
+    },
+  })
+  addCmdLog(`GOTO x=${x} y=${y} z=${z}`, 'SENT')
+}
+
+function cmdVelStop () {
+  rosPub('/mavros/setpoint_velocity/cmd_vel_unstamped', 'geometry_msgs/Twist', {
+    linear:  { x: 0, y: 0, z: 0 },
+    angular: { x: 0, y: 0, z: 0 },
+  })
+  addCmdLog('VEL STOP', 'SENT')
+}
+
+// ── SLAM commands ─────────────────────────────────────────────────────────────
+function slamSaveMap () {
+  rosService('/slam_toolbox/save_map', 'slam_toolbox/SaveMap',
+    { name: { data: 'gcs_map_' + Date.now() } },
+    r => addCmdLog('SAVE MAP', r && r.result === 0 ? 'OK' : 'FAIL'))
+}
+
+function slamToggle (enable) {
+  rosService('/slam_toolbox/toggle_interactive_mode', 'slam_toolbox/ToggleInteractive',
+    {},
+    () => addCmdLog(enable ? 'SLAM START' : 'SLAM PAUSE', 'SENT'))
+}
+
+function slamResetPose () {
+  rosService('/slam_toolbox/clear_changes', 'slam_toolbox/ClearChanges', {},
+    () => addCmdLog('SLAM RESET', 'SENT'))
+}
+
+// ── init controls ─────────────────────────────────────────────────────────────
+function initControls () {
+  $('btn-arm').addEventListener('click', cmdArm)
+  $('btn-disarm').addEventListener('click', cmdDisarm)
+  $('btn-takeoff').addEventListener('click', cmdTakeoff)
+  $('btn-land').addEventListener('click', cmdLand)
+  $('btn-rtl').addEventListener('click', () => cmdSetMode('RTL'))
+
+  document.querySelectorAll('.mode-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'))
+      btn.classList.add('active')
+      cmdSetMode(btn.dataset.mode)
+    })
+  })
+
+  $('btn-goto').addEventListener('click', cmdGoto)
+  $('btn-vel-stop').addEventListener('click', cmdVelStop)
+  $('btn-hold').addEventListener('click', () => cmdSetMode('LOITER'))
+
+  $('btn-slam-start').addEventListener('click', () => slamToggle(true))
+  $('btn-slam-pause').addEventListener('click', () => slamToggle(false))
+  $('btn-slam-save').addEventListener('click', slamSaveMap)
+  $('btn-slam-reset').addEventListener('click', slamResetPose)
+}
+
 // ── subscriptions ─────────────────────────────────────────────────────────────
 function subscribe () {
   // speed + heading
@@ -460,6 +595,10 @@ function updateDOM () {
   const pillMode = $('pill-mode')
   pillMode.textContent = S.mode
   pillMode.className   = 'pill active'
+
+  document.querySelectorAll('.mode-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.mode === S.mode)
+  })
 
   // navigation view
   $('nav-spd').textContent   = fmt1(S.speed)   + ' m/s'
@@ -1121,6 +1260,7 @@ document.addEventListener('DOMContentLoaded', () => {
   drawTestPattern('icam2', 120)
   resizeCanvases()
   initConnPopover()
+  initControls()
   connect()
   frame()
 })
