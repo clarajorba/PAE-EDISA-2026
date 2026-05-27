@@ -15,10 +15,11 @@ BASE_DIR       = os.path.dirname(os.path.abspath(__file__))
 VOLUMETRIA_DIR = os.path.normpath(os.path.join(BASE_DIR, "..", "volumetria"))
 DETECCION_DIR  = os.path.normpath(os.path.join(BASE_DIR, "..", "deteccion_cajas"))
 
-# sys.path: VOLUMETRIA_DIR para encontrar 'groundingdino' como paquete
-# (no hace falta para LECTOR_CODIS porque está en la misma carpeta que BLOC0)
-if VOLUMETRIA_DIR not in sys.path:
-   sys.path.insert(0, VOLUMETRIA_DIR)
+# sys.path: DETECCION_DIR per trobar 'groundingdino' com a paquet
+# (el paquet groundingdino viu a deteccion_cajas, no a volumetria)
+# (no cal per LECTOR_CODIS perquè està a la mateixa carpeta que BLOC0)
+if DETECCION_DIR not in sys.path:
+   sys.path.insert(0, DETECCION_DIR)
 
 # Imports locales (DESPUÉS del sys.path.insert)
 from groundingdino.util.inference import load_model
@@ -28,19 +29,19 @@ from BLOC1 import detectar_qualsevol_caixa
 from BLOC3 import calcular_volumetria
 
 # Config GroundingDINO
-GD_CONFIG_PATH  = os.path.join(VOLUMETRIA_DIR, "groundingdino", "config", "GroundingDINO_SwinT_OGC.py")
+GD_CONFIG_PATH  = os.path.join(DETECCION_DIR, "groundingdino", "config", "GroundingDINO_SwinT_OGC.py")
 GD_WEIGHTS_PATH = os.path.join(DETECCION_DIR,  "weights", "groundingdino_swint_ogc.pth")
 DEVICE          = "cuda" if torch.cuda.is_available() else "cpu"
 
 # ==========================================
 # CONFIGURACIÓ GENERAL
 # ==========================================
-CARPETA_FOTOS = os.path.join(VOLUMETRIA_DIR, "fotos_capturades")
+CARPETA_FOTOS = os.path.join(VOLUMETRIA_DIR, "data", "fotos_capturades")
 DISTANCIA_LIDAR_CM = 120.0
 CARPETA_RESULTATS = os.path.join(BASE_DIR, "resultados_fotos_capturades")
 MARGE_BORDE_VALIDACIO = 10
 
-MANIFEST_CSV = os.path.join(VOLUMETRIA_DIR, "etiquetes_magatzem_simulades_manifest.csv")
+MANIFEST_CSV = os.path.join(VOLUMETRIA_DIR, "data", "etiquetes_magatzem_manifest.csv")
 
 # ==========================================
 # CONFIGURACIÓ DE CAPTURA DE VÍDEO
@@ -232,7 +233,7 @@ def executar_pipeline_orquestrat():
    print("\nCarregant models d'Intel·ligència Artificial...")
    detector = load_model(GD_CONFIG_PATH, GD_WEIGHTS_PATH).to(DEVICE)
    print(f"GroundingDINO carregat a {DEVICE.upper()}")
-   segmentador = SAM(os.path.join(VOLUMETRIA_DIR, "mobile_sam.pt"))
+   segmentador = SAM(os.path.join(VOLUMETRIA_DIR, "models", "mobile_sam.pt"))
 
    os.makedirs(CARPETA_RESULTATS, exist_ok=True)
    arxius = sorted([f for f in os.listdir(CARPETA_FOTOS) if f.lower().endswith(('.png', '.jpg', '.jpeg'))])
