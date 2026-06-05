@@ -107,15 +107,8 @@ Client: EDISA
 
 **Students**
 
-| | | |
-|---|---|---|
-| Aaron Noguera | Aitor Pitarch | Alejandro de Alvarado |
-| Alejandro Jové | Clara Jorba | Ignacio Blasi |
-| Ignasi Fernández | Jaqueline Khalioulline | Lluís Estapé |
-| Diego Rivas | Marc Elvira | Pablo Sánchez |
-| Patricia Ballester | Samantha Wroblewski | |
+Aaron Noguera · Aitor Pitarch · Alejandro de Alvarado · Alejandro Jové · Clara Jorba · Ignacio Blasi · Ignasi Fernández · Jaqueline Khalioulline · Lluís Estapé · Diego Rivas · Marc Elvira · Pablo Sánchez · Patricia Ballester · Samantha Wroblewski
 
 **Professors**
 
-| Elisa Sayrol | Javier Ruiz-Hidalgo |
-|---|---|
+Elisa Sayrol · Javier Ruiz-Hidalgo
