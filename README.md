@@ -52,7 +52,10 @@ A drone equipped with a LiDAR sensor, camera, and onboard computer flies autonom
 ## Video Demo
 
 <p align="center">
-  <video src="WP2/gcs/docs/assets/demo.mp4" controls muted width="100%"></video>
+  <a href="WP2/gcs/docs/assets/demo.mp4">
+    <img src="WP2/gcs/docs/assets/slam.png" width="80%" alt="▶ Click to watch demo"/>
+  </a>
+  <br/><em>▶ Click to watch the demo video</em>
 </p>
 
 ---
