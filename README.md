@@ -20,12 +20,12 @@ A drone equipped with a LiDAR sensor, camera, and onboard computer flies autonom
 ## System Overview
 
 ```mermaid
-flowchart LR
+flowchart TD
     subgraph DRONE["🚁  DRONE"]
-        direction TB
+        direction LR
 
         subgraph SENSORS["Sensors"]
-            direction LR
+            direction TB
             LiDAR["📡 Unitree 4D LiDAR"]
             CAM["📷 Pi Camera Module"]
             PX["🎮 Pixhawk FC · ArduCopter"]
@@ -40,21 +40,21 @@ flowchart LR
             RB["🌐 rosbridge :9090"]
         end
 
-        LiDAR -- "eth0" --> PI
-        CAM   -- "CSI"  --> PI
-        PX    -- "UART" --> PI
+        LiDAR -- "eth0"  --> PI
+        CAM   -- "CSI"   --> PI
+        PX    -- "UART"  --> PI
     end
 
     subgraph GCS["💻  GCS Laptop  ·  Electron"]
-        direction TB
+        direction LR
         DASH["🖥️ Dashboard\nARM · Camera · Map"]
         NAV["🧭 Navigation\nHorizon · GPS · IMU"]
         SLAMV["🗺️ SLAM Viewer\n3D Point Cloud"]
         IMGP["📦 Image Processing\nInventory · Barcodes"]
     end
 
-    RB   -- "Wi-Fi · WebSocket" --> GCS
-    CAM  -. "MJPEG :8080" .-> DASH
+    RB  -- "Wi-Fi · WebSocket :9090" --> GCS
+    CAM -. "MJPEG HTTP :8080" .-> DASH
 
     style DRONE  fill:#1B3D6F18,stroke:#1B3D6F,stroke-width:2px,color:#ccc
     style SENSORS fill:#ffffff08,stroke:#555,stroke-dasharray:4,color:#aaa
