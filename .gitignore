@@ -24,3 +24,22 @@ MOCKUP_ARUCO/config/camera_profiles/*
 MOCKUP_ARUCO/config/camera_calibration.json
 WP3.zip
 
+# OS metadata
+.DS_Store
+Thumbs.db
+*:Zone.Identifier
+
+# Large ML model weights (use Git LFS or download separately)
+*.pt
+*.pth
+*.onnx
+*.weights
+
+# Node / npm
+node_modules/
+dist/
+docs/node_modules/
+
+# Generated docs
+docs/screenshots/
+docs/slide_preview/
