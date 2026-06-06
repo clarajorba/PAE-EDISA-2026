@@ -19,22 +19,59 @@ A drone equipped with a LiDAR sensor, camera, and onboard computer flies autonom
 
 ## System Overview
 
-```
-┌───────────────────────────── DRONE ─────────────────────────────────┐
-│                                                                      │
-│   Unitree 4D LiDAR ──eth0──▶                                        │
-│   Pi Camera Module ──CSI──▶  Raspberry Pi 5  (ROS2 Jazzy)          │
-│   Pixhawk FC ────UART──────▶  • Point-LIO SLAM                      │
-│                               • MAVLink bridge                       │
-│                               • Barcode detector                     │
-│                               • Brain / mission planner              │
-│                               • rosbridge WS :9090                   │
-└───────────────────────────────────────┬──────────────────────────────┘
-                                        │ Wi-Fi
-                         ┌──────────────▼──────────────┐
-                         │   GCS Laptop — Electron     │
-                         │   Dashboard · SLAM · Vision │
-                         └─────────────────────────────┘
+```mermaid
+flowchart TD
+    subgraph DRONE["🚁  DRONE"]
+        direction LR
+
+        subgraph SENSORS[" "]
+            direction TB
+            LiDAR["📡 Unitree 4D LiDAR"]
+            CAM["📷 Pi Camera Module"]
+            PX["🎮 Pixhawk FC\nArduCopter"]
+        end
+
+        subgraph PI["🍓  Raspberry Pi 5  ·  ROS2 Jazzy"]
+            direction TB
+            SLAM["🗺️ Point-LIO SLAM\n800 000 pts/scan"]
+            MAV["🔌 MAVLink bridge\npymavlink"]
+            BAR["📦 Barcode detector\npyzbar + OpenCV"]
+            BRAIN["🧠 Brain node\nmission planner"]
+            RB["🌐 rosbridge\nWebSocket :9090"]
+        end
+
+        LiDAR -- "Ethernet eth0" --> PI
+        CAM   -- "CSI" --> PI
+        PX    -- "UART 57600" --> PI
+    end
+
+    subgraph GCS["💻  GCS Laptop  ·  Electron"]
+        direction LR
+        DASH["Dashboard\nARM · Camera · Map"]
+        NAV["Navigation\nHorizon · GPS · IMU"]
+        SLAMV["SLAM\n3D Point Cloud"]
+        IMGP["Image Processing\nInventory · Barcodes"]
+    end
+
+    RB      -- "Wi-Fi · WebSocket" --> GCS
+    PI      -- "MJPEG HTTP :8080"  --> DASH
+
+    style DRONE fill:#1B3D6F22,stroke:#1B3D6F,stroke-width:2px,color:#fff
+    style PI    fill:#0D1B2A,stroke:#4FC3F7,stroke-width:1.5px,color:#fff
+    style GCS   fill:#0E3D1A,stroke:#64D2A4,stroke-width:2px,color:#fff
+    style SENSORS fill:#00000000,stroke:#00000000
+    style SLAM  fill:#1B3D6F,stroke:#4FC3F7,color:#fff
+    style MAV   fill:#1B3D6F,stroke:#4FC3F7,color:#fff
+    style BAR   fill:#1B3D6F,stroke:#4FC3F7,color:#fff
+    style BRAIN fill:#1B3D6F,stroke:#4FC3F7,color:#fff
+    style RB    fill:#0A4A6E,stroke:#4FC3F7,color:#fff
+    style DASH  fill:#0E4A1A,stroke:#64D2A4,color:#fff
+    style NAV   fill:#0E4A1A,stroke:#64D2A4,color:#fff
+    style SLAMV fill:#0E4A1A,stroke:#64D2A4,color:#fff
+    style IMGP  fill:#0E4A1A,stroke:#64D2A4,color:#fff
+    style LiDAR fill:#2C3E50,stroke:#7F8C8D,color:#fff
+    style CAM   fill:#2C3E50,stroke:#7F8C8D,color:#fff
+    style PX    fill:#2C3E50,stroke:#7F8C8D,color:#fff
 ```
 
 ---
