@@ -70,12 +70,17 @@ def detectar_qualsevol_caixa(ruta_o_img, mostrar_visualment=False, bbox_objectiu
    kernel_close_h = cv2.getStructuringElement(cv2.MORPH_RECT, (60, 20))
    mascara_binaria = cv2.morphologyEx(mascara_binaria, cv2.MORPH_CLOSE, kernel_close_h)
 
-   # --- FIX 4: Retallar la màscara pel límit inferior del bbox de YOLO ---
-   # Evita que la sombra/reflexe de la caixa sobre la taula s'inclogui a la màscara.
-   # Marge generós (40px) per no tallar la cantonada inferior real de la caixa.
-   MARGE_BBOX_INFERIOR = 40
-   y_limit = min(img.shape[0], int(box_ampliada[3]) + MARGE_BBOX_INFERIOR)
-   mascara_binaria[y_limit:, :] = 0
+   # --- FIX 4: Retallar la màscara per sota, basant-nos en l'extensió REAL de
+   # la màscara (no en el bbox del detector). El bbox sovint queda més amunt que
+   # la caixa real i tallava les cantonades inferiors -> polígon incomplet.
+   # Ara només eliminem el que queda clarament per sota del cos de la màscara
+   # (sombra/reflexe), deixant un marge perquè el dilate posterior no la retalli.
+   MARGE_INFERIOR = 15
+   files_amb_mascara = np.where(mascara_binaria.any(axis=1))[0]
+   if len(files_amb_mascara) > 0:
+       y_baix_mascara = int(files_amb_mascara.max())
+       y_limit = min(img.shape[0], y_baix_mascara + MARGE_INFERIOR)
+       mascara_binaria[y_limit:, :] = 0
 
    # Dilate final reduït: reconstitueix el contorn sense re-expandir cap a la taula
    kernel_dilate = np.ones((10, 10), np.uint8)
