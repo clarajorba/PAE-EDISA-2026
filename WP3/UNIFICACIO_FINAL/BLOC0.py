@@ -816,6 +816,7 @@ def executar_pipeline_orquestrat():
    for index_frame, nom_arxiu in enumerate(arxius, start=1):
        ruta_completa = os.path.join(CARPETA_FOTOS, nom_arxiu)
        img = cv2.imread(ruta_completa)
+       img = cv2.rotate(img, cv2.ROTATE_180)
        H, W = img.shape[:2]
        img_visual = img.copy()
        temps_actual = (index_frame - 1) * FRAME_INTERVAL_SECONDS

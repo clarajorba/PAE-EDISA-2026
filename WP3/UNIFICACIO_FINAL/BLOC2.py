@@ -23,19 +23,51 @@ import groundingdino.datasets.transforms as T
 # ==========================================
 # CONFIGURACIO GROUNDINGDINO
 # ==========================================
-GD_TEXT_PROMPT     = "cardboard box . box . carton . stacked cardboard box . pallet ."
-GD_BOX_THRESHOLD   = 0.19
-GD_TEXT_THRESHOLD  = 0.30
+GD_TEXT_PROMPT     = "cardboard box . brown carton box ."
+GD_BOX_THRESHOLD   = 0.30
+GD_TEXT_THRESHOLD  = 0.25
 GD_DEVICE          = "cuda" if torch.cuda.is_available() else "cpu"
 
 # ==========================================
 # CONFIGURACIO DE FILTRES GEOMETRICS (mateixos valors que la versio YOLO)
 # ==========================================
-MIN_BOX_SIZE_NORM          = 0.06
+MIN_BOX_SIZE_NORM          = 0.12
 MAX_BOX_ASPECT_RATIO       = 2.2
 CONTAINMENT_THRESHOLD      = 0.5
 CENTER_DIST_THRESHOLD_NORM = 0.05
 IOU_THRESHOLD              = 0.7
+
+# ==========================================
+# CONFIGURACIO DEL FILTRE DE COLOR (rebutja no-cartro)
+# El cartro es marro/gris. Rebutgem deteccions on domina:
+#   - blanc        (etiquetes de codi de barres)
+#   - taronja      (vigues de l'estanteria)
+#   - negre/fosc   (estructura metal.lica de l'estanteria)
+# ==========================================
+COLOR_FILTER_DOMINANCE   = 0.55   # fraccio de pixels d'un color per rebutjar
+COLOR_WHITE_SAT_MAX      = 45     # saturacio max per considerar blanc
+COLOR_WHITE_VAL_MIN      = 170    # valor min per considerar blanc
+COLOR_DARK_VAL_MAX       = 55     # valor max per considerar negre/fosc
+COLOR_ORANGE_HSV_LOW     = np.array([8, 120, 100])
+COLOR_ORANGE_HSV_HIGH    = np.array([20, 255, 255])
+
+# ==========================================
+# CONFIGURACIO DE SEGMENTACIO SAM
+# ==========================================
+SAM_MARGE_PX        = 20    # marge al voltant del bbox de GroundingDINO (abans 60)
+MIN_MASK_FILL_RATIO = 0.55  # la mascara ha de cobrir >= 55% del bbox (rebutja etiquetes/llistons)
+
+# ==========================================
+# CONFIGURACIO DEL FILTRE DE CODI DE BARRES (rebutja etiquetes detectades com caixa)
+# Una etiqueta de codi de barres es: escala de grisos (baixa saturacio) + ratlles
+# verticals molt marcades (gradient horitzontal fort i direccional). Una caixa real
+# te superficie llisa i el codi de barres nomes ocupa una fraccio petita -> no dispara.
+# ==========================================
+BARCODE_SAT_MAX   = 60    # saturacio mitjana max per considerar paper/grisos
+BARCODE_DIR_RATIO = 1.8   # |grad_x| / |grad_y| min per cel.la (ratlles verticals)
+BARCODE_GX_MIN    = 25.0  # densitat min de vores verticals per cel.la (escala 0-255)
+BARCODE_CELLS     = 16    # graella NxN per mesurar quina fraccio te ratlles
+BARCODE_AREA_FRAC = 0.45  # si >=45% de la regio te ratlles -> es etiqueta, no caixa
 
 # ==========================================
 # CONFIGURACIO DEL FILTRE DE PALLETS (portat de prueba_detector_almacen2.py)
@@ -303,6 +335,101 @@ def _filtre_dist_centres(boxes, scores, img_shape):
    return arr[kept].tolist(), scores[kept]
 
 
+def _filtre_color(boxes, scores, img_bgr):
+   """Rebutja deteccions on domina el blanc (etiquetes), taronja (vigues)
+   o negre (estructura metal.lica). El cartro es marro/gris i sobreviu."""
+   if len(boxes) == 0:
+       return boxes, scores
+   H, W = img_bgr.shape[:2]
+   hsv  = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2HSV)
+   arr  = np.array(boxes, dtype=np.float32)
+   keep = np.ones(len(arr), dtype=bool)
+
+   for i, (x1, y1, x2, y2) in enumerate(arr):
+       # Regio interior (retallem un 15% de marge per evitar el fons)
+       bw, bh = x2 - x1, y2 - y1
+       ix1 = int(max(0, x1 + 0.15 * bw))
+       iy1 = int(max(0, y1 + 0.15 * bh))
+       ix2 = int(min(W, x2 - 0.15 * bw))
+       iy2 = int(min(H, y2 - 0.15 * bh))
+       if ix2 <= ix1 or iy2 <= iy1:
+           continue
+
+       roi   = hsv[iy1:iy2, ix1:ix2]
+       total = roi.shape[0] * roi.shape[1]
+       if total == 0:
+           continue
+
+       h_ch, s_ch, v_ch = roi[:, :, 0], roi[:, :, 1], roi[:, :, 2]
+       frac_blanc   = np.mean((s_ch <= COLOR_WHITE_SAT_MAX) & (v_ch >= COLOR_WHITE_VAL_MIN))
+       frac_fosc    = np.mean(v_ch <= COLOR_DARK_VAL_MAX)
+       mask_taronja = cv2.inRange(roi, COLOR_ORANGE_HSV_LOW, COLOR_ORANGE_HSV_HIGH)
+       frac_taronja = np.mean(mask_taronja > 0)
+
+       if max(frac_blanc, frac_fosc, frac_taronja) >= COLOR_FILTER_DOMINANCE:
+           keep[i] = False
+
+   if (~keep).sum():
+       print(f"   [color]       elim. {(~keep).sum()} (blanc/taronja/fosc)")
+   return arr[keep].tolist(), scores[keep]
+
+
+def _filtre_codi_barres(boxes, scores, img_bgr):
+   """Rebutja deteccions que son una etiqueta de codi de barres (no una caixa).
+   Una etiqueta es escala de grisos amb ratlles verticals dominants. Una caixa
+   real, encara que tingui una etiqueta, te molta superficie llisa al voltant,
+   aixi que la textura de ratlles queda diluida i no dispara el filtre."""
+   if len(boxes) == 0:
+       return boxes, scores
+   H, W = img_bgr.shape[:2]
+   hsv  = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2HSV)
+   gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
+   arr  = np.array(boxes, dtype=np.float32)
+   keep = np.ones(len(arr), dtype=bool)
+
+   for i, (x1, y1, x2, y2) in enumerate(arr):
+       bw, bh = x2 - x1, y2 - y1
+       ix1 = int(max(0, x1 + 0.10 * bw))
+       iy1 = int(max(0, y1 + 0.10 * bh))
+       ix2 = int(min(W, x2 - 0.10 * bw))
+       iy2 = int(min(H, y2 - 0.10 * bh))
+       if ix2 - ix1 < 10 or iy2 - iy1 < 10:
+           continue
+
+       sat_mitjana = float(np.mean(hsv[iy1:iy2, ix1:ix2, 1]))
+       if sat_mitjana > BARCODE_SAT_MAX:
+           continue  # te color -> no es paper en escala de grisos
+
+       roi = gray[iy1:iy2, ix1:ix2]
+       gx  = np.abs(cv2.Sobel(roi, cv2.CV_32F, 1, 0, ksize=3))
+       gy  = np.abs(cv2.Sobel(roi, cv2.CV_32F, 0, 1, ksize=3))
+
+       # Mesurem QUINA FRACCIO de la regio te ratlles verticals (no el gradient
+       # mitja): una etiqueta n'esta plena; una caixa amb etiqueta nomes en te un tros.
+       hh, ww = roi.shape
+       ch, cw = hh // BARCODE_CELLS, ww // BARCODE_CELLS
+       if ch < 2 or cw < 2:
+           continue
+       cel_ratllades = 0
+       total_cel     = 0
+       for r in range(BARCODE_CELLS):
+           for c in range(BARCODE_CELLS):
+               bx = gx[r * ch:(r + 1) * ch, c * cw:(c + 1) * cw]
+               by = gy[r * ch:(r + 1) * ch, c * cw:(c + 1) * cw]
+               gxm = float(np.mean(bx))
+               gym = float(np.mean(by))
+               total_cel += 1
+               if gxm >= BARCODE_GX_MIN and gxm / (gym + 1e-6) >= BARCODE_DIR_RATIO:
+                   cel_ratllades += 1
+
+       if total_cel > 0 and (cel_ratllades / total_cel) >= BARCODE_AREA_FRAC:
+           keep[i] = False
+
+   if (~keep).sum():
+       print(f"   [codi_barres] elim. {(~keep).sum()} (etiqueta, no caixa)")
+   return arr[keep].tolist(), scores[keep]
+
+
 def _filtre_nms(boxes, scores):
    if len(boxes) == 0: return boxes, scores
    arr = np.array(boxes, dtype=np.float32)
@@ -326,12 +453,14 @@ def _filtre_nms(boxes, scores):
 
 
 def aplicar_filtres(boxes, scores, img_bgr):
-   """Cascada: beam_zone -> min_size -> aspect -> containment -> dist_centres -> NMS."""
+   """Cascada: beam_zone -> min_size -> aspect -> color -> codi_barres -> containment -> dist_centres -> NMS."""
    img_shape = img_bgr.shape
    print(f"   [FILTRES] inici: {len(boxes)} deteccions")
    boxes, scores = _filtre_beam_zone(boxes, scores, img_bgr)
    boxes, scores = _filtre_min_size(boxes, scores, img_shape)
    boxes, scores = _filtre_aspect_ratio(boxes, scores)
+   boxes, scores = _filtre_color(boxes, scores, img_bgr)
+   boxes, scores = _filtre_codi_barres(boxes, scores, img_bgr)
    boxes, scores = _filtre_containment(boxes, scores)
    boxes, scores = _filtre_dist_centres(boxes, scores, img_shape)
    boxes, scores = _filtre_nms(boxes, scores)
@@ -467,7 +596,7 @@ def extreure_ids_i_posicions(img, detector, segmentador, distancia_lidar_cm):
 
    for box in caixes_dino:
        x1, y1, x2, y2 = map(int, box)
-       marge          = 60
+       marge          = SAM_MARGE_PX
        box_ampliada   = [
            max(0, x1 - marge),
            max(0, y1 - marge),
@@ -477,21 +606,48 @@ def extreure_ids_i_posicions(img, detector, segmentador, distancia_lidar_cm):
 
        resultats_sam = segmentador.predict(img, bboxes=box_ampliada, verbose=False)
 
-       if resultats_sam[0].masks is not None and len(resultats_sam[0].masks.xy) > 0:
-           contorn_np = np.array(resultats_sam[0].masks.xy[0], dtype=np.int32)
-           moments    = cv2.moments(contorn_np)
-           if moments["m00"] != 0:
-               cx = int(moments["m10"] / moments["m00"])
-               cy = int(moments["m01"] / moments["m00"])
-           else:
-               cx, cy = int((x1 + x2) / 2), int((y1 + y2) / 2)
+       if resultats_sam[0].masks is None or len(resultats_sam[0].masks.xy) == 0:
+           continue
 
-           centroides_actuals.append((cx, cy))
-           info_caixes.append({
-               'bbox_ampliada': box_ampliada,
-               'cx': cx, 'cy': cy,
-               'contorn': contorn_np,
-           })
+       # Area del bbox de GroundingDINO (sense el marge) per mesurar el farciment
+       area_bbox = max(1.0, float((x2 - x1) * (y2 - y1)))
+
+       # Triem la mascara que millor omple el bbox (no la primera per defecte).
+       # Es rebutja la deteccio si cap mascara cobreix prou (etiquetes/llistons fins).
+       millor_contorn = None
+       millor_fill    = 0.0
+       for contorn_xy in resultats_sam[0].masks.xy:
+           cand = np.array(contorn_xy, dtype=np.int32)
+           if len(cand) < 3:
+               continue
+           # Fraccio del bbox de GroundingDINO coberta per la mascara
+           mc = np.zeros((img.shape[0], img.shape[1]), dtype=np.uint8)
+           cv2.fillPoly(mc, [cand], 255)
+           interior = mc[max(0, y1):min(img.shape[0], y2),
+                         max(0, x1):min(img.shape[1], x2)]
+           fill = float(np.count_nonzero(interior)) / area_bbox
+           if fill > millor_fill:
+               millor_fill    = fill
+               millor_contorn = cand
+
+       if millor_contorn is None or millor_fill < MIN_MASK_FILL_RATIO:
+           print(f"   [SAM/fill]    elim. 1 (fill {millor_fill:.2f} < {MIN_MASK_FILL_RATIO})")
+           continue
+
+       contorn_np = millor_contorn
+       moments    = cv2.moments(contorn_np)
+       if moments["m00"] != 0:
+           cx = int(moments["m10"] / moments["m00"])
+           cy = int(moments["m01"] / moments["m00"])
+       else:
+           cx, cy = int((x1 + x2) / 2), int((y1 + y2) / 2)
+
+       centroides_actuals.append((cx, cy))
+       info_caixes.append({
+           'bbox_ampliada': box_ampliada,
+           'cx': cx, 'cy': cy,
+           'contorn': contorn_np,
+       })
 
    # 4) Tracking amb memòria (idèntic)
    ids_assignats_finals = tracking_robust_amb_memoria(centroides_actuals, distancia_lidar_cm)
