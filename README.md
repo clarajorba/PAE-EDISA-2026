@@ -12,7 +12,7 @@ A drone equipped with a LiDAR sensor, camera, and onboard computer flies autonom
 |---|---|---|
 | [`WP2/`](WP2/README.md) | **GCS & Drone Control** | Electron ground control app + ROS2 onboard stack + MAVLink bridge |
 | [`WP3/`](WP3/README.md) | **Computer Vision** | Box detection, volumetry estimation, unified pipeline |
-| [`WP1/`](WP1/planos_aruco/README.md) | **ArUco Localisation** | Marker-based pose estimation mockup |
+| [`WP1/`](WP1/mockup_aruco/planos_aruco/README.md) | **ArUco Localisation** | Marker-based pose estimation mockup |
 | [`src/`](src/) | **SLAM Libraries** | Point-LIO and Unitree LiDAR ROS2 driver (submodules) |
 
 ---

@@ -16,12 +16,12 @@ camera_calibration.json
 #Ignore vscode AI rules
 .github/instructions/codacy.instructions.md
 
-# WP1 generated outputs
-WP1/results/*
-!WP1/results/.gitkeep
-WP1/config/camera_profiles/*
-!WP1/config/camera_profiles/.gitkeep
-WP1/config/camera_calibration.json
+# WP1 mockup_aruco generated outputs
+WP1/mockup_aruco/results/*
+!WP1/mockup_aruco/results/.gitkeep
+WP1/mockup_aruco/config/camera_profiles/*
+!WP1/mockup_aruco/config/camera_profiles/.gitkeep
+WP1/mockup_aruco/config/camera_calibration.json
 WP3.zip
 
 # OS metadata
