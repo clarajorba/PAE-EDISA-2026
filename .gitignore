@@ -17,11 +17,11 @@ camera_calibration.json
 .github/instructions/codacy.instructions.md
 
 # MOCKUP_ARUCO generated outputs
-MOCKUP_ARUCO/results/*
-!MOCKUP_ARUCO/results/.gitkeep
-MOCKUP_ARUCO/config/camera_profiles/*
-!MOCKUP_ARUCO/config/camera_profiles/.gitkeep
-MOCKUP_ARUCO/config/camera_calibration.json
+WP1/MOCKUP_ARUCO/results/*
+!WP1/MOCKUP_ARUCO/results/.gitkeep
+WP1/MOCKUP_ARUCO/config/camera_profiles/*
+!WP1/MOCKUP_ARUCO/config/camera_profiles/.gitkeep
+WP1/MOCKUP_ARUCO/config/camera_calibration.json
 WP3.zip
 
 # OS metadata
