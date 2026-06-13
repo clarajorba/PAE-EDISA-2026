@@ -90,7 +90,7 @@ flowchart TD
 
 <p align="center">
   <a href="WP2/gcs/docs/assets/demo.mp4">
-    <img src="WP2/gcs/docs/assets/slam.png" width="80%" alt="▶ Click to watch demo"/>
+    <img src="WP2/gcs/docs/assets/dashboard.png" width="80%" alt="▶ Click to watch demo"/>
   </a>
   <br/><em>▶ Click to watch the demo video</em>
 </p>
@@ -144,6 +144,11 @@ Client: EDISA
 ---
 
 ## Contributors
+
+<p align="center">
+  <img src="WP2/gcs/docs/assets/team.jpg" width="80%" alt="Team — Final Design Review, 8 June 2026"/>
+  <br/><em>Final Design Review · Hotel Alimara · 8 June 2026</em>
+</p>
 
 **Students**
 
