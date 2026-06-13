@@ -146,8 +146,8 @@ Client: EDISA
 ## Contributors
 
 <p align="center">
-  <img src="WP2/gcs/docs/assets/team.jpg" width="80%" alt="Team — Final Design Review, 8 June 2026"/>
-  <br/><em>Final Design Review · Hotel Alimara · 8 June 2026</em>
+  <img src="WP2/gcs/docs/assets/team.jpg" width="80%" alt="The Team"/>
+  <br/><em>The Team</em>
 </p>
 
 **Students**
