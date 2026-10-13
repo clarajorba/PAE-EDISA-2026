@@ -10,17 +10,12 @@ __pycache__/
 *.py[cod]
 .ipynb_checkpoints/
 pose_log.json
-fotos_aruco/
 camera_calibration.json
 
 #Ignore vscode AI rules
 .github/instructions/codacy.instructions.md
 
-# WP1 mockup_aruco generated outputs
-WP1/mockup_aruco/results/*
-!WP1/mockup_aruco/results/.gitkeep
-WP1/mockup_aruco/config/camera_profiles/*
-!WP1/mockup_aruco/config/camera_profiles/.gitkeep
+# Camera calibration outputs (WP3/calibration)
 WP3/config/camera_calibration.json
 WP3.zip
 

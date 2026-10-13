@@ -10,7 +10,6 @@ A drone equipped with a LiDAR sensor, camera, and onboard computer flies autonom
 
 | Folder | Work Package | Description |
 |---|---|---|
-| [`WP1/`](WP1/mockup_aruco/planos_aruco/README.md) | **ArUco Localisation** | Marker-based pose estimation mockup |
 | [`WP2/`](WP2/README.md) | **GCS & Drone Control** | Electron ground control app + ROS2 onboard stack + MAVLink bridge |
 | [`WP3/`](WP3/README.md) | **Computer Vision** | Box detection, volumetry estimation, unified pipeline |
 | [`src/`](src/) | **SLAM Libraries** | Point-LIO and Unitree LiDAR ROS2 driver (submodules) |
@@ -131,7 +130,7 @@ npm start
 **Onboard (Raspberry Pi 5):** ROS2 Jazzy · Point-LIO SLAM · pymavlink · picamera2 · OpenCV · pyzbar · Flask · rosbridge  
 **Ground app:** Electron · Node.js · ROSLIB.js · Chart.js · Leaflet · SQLite3  
 **Comms:** MAVLink v2 (UART) · rosbridge WebSocket · MJPEG HTTP  
-**Vision:** YOLOv8 · OpenCV · pyzbar · ArUco
+**Vision:** YOLOv8 · OpenCV · pyzbar
 
 ---
 
