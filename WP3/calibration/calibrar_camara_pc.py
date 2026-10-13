@@ -10,13 +10,13 @@ Instrucciones:
   2. Imprime un tablero de ajedrez de 8x8 cuadrados (7x7 esquinas interiores).
      Descárgalo en: https://calib.io/pages/camera-calibration-pattern-generator
   3. Mide con regla el lado de un cuadrado en metros y ajusta SQUARE_SIZE.
-  4. Ejecuta desde la raíz del proyecto MOCKUP_ARUCO/:
+  4. Ejecuta desde la carpeta WP3/:
          python calibration/calibrar_camara_pc.py
   5. Mueve el tablero delante de la cámara en distintas posiciones y ángulos.
      Pulsa ESPACIO para capturar (mínimo 15, recomendable 20-30).
   6. Pulsa 'q' cuando tengas suficientes capturas.
-     El script calibra y guarda el resultado en config/camera_calibration_pc.json.
-  7. Copia los valores de camera_matrix y dist_coeffs a AppConfig en detector_3d.py.
+     El script calibra y guarda el resultado en WP3/config/camera_calibration_pc.json.
+  7. Usa camera_matrix y dist_coeffs (del JSON) en el código de visión.
 """
 
 import cv2
@@ -204,7 +204,7 @@ def guardar_calibracion(camera_matrix, dist_coeffs, mean_err, img_size):
 
 
 def mostrar_resultados(camera_matrix, dist_coeffs, mean_err):
-    """Imprime los resultados para copiar a detector_3d.py."""
+    """Imprime los resultados de la calibración."""
     fx, fy = camera_matrix[0, 0], camera_matrix[1, 1]
     cx, cy = camera_matrix[0, 2], camera_matrix[1, 2]
     d = dist_coeffs.flatten()
@@ -224,7 +224,7 @@ def mostrar_resultados(camera_matrix, dist_coeffs, mean_err):
     print(f"    distorsión = [{', '.join(f'{v:.6f}' for v in d)}]")
 
     print(f"\n  ┌─────────────────────────────────────────────────┐")
-    print(f"  │  COPIA ESTO EN AppConfig de detector_3d.py:     │")
+    print(f"  │  VALORES PARA EL CÓDIGO DE VISIÓN:              │")
     print(f"  └─────────────────────────────────────────────────┘\n")
 
     print(f"    camera_matrix: np.ndarray = field(default_factory=lambda: np.array([")
@@ -277,7 +277,7 @@ def main():
     mostrar_resultados(camera_matrix, dist_coeffs, mean_err)
     guardar_calibracion(camera_matrix, dist_coeffs, mean_err, img_size)
 
-    print("\n  Listo. Ahora copia los valores a detector_3d.py y vuelve a probar.\n")
+    print(f"\n  Listo. Valores guardados en {OUTPUT_FILE}\n")
 
 
 if __name__ == "__main__":

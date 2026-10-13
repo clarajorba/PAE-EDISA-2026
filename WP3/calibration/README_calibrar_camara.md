@@ -1,8 +1,10 @@
 # calibrar_camara.py — Guía de uso
 
-Script de calibración para la **Raspberry Pi Camera Module 3 NoIR** conectada a una **Raspberry Pi 4 Model B**. Genera los parámetros intrínsecos de la cámara (`camera_matrix` y `dist_coeffs`) necesarios para el detector 3D de ArUco.
+Script de calibración para la **Raspberry Pi Camera Module 3 NoIR** conectada a la **Raspberry Pi** del dron. Genera los parámetros intrínsecos de la cámara (`camera_matrix` y `dist_coeffs`), que sirven para corregir la distorsión de la lente y para pasar medidas en píxeles a medidas reales (por ejemplo, en la volumetría de WP3).
 
-> **Importante:** La Camera Module 3 NoIR tiene **autoenfoque (AF)**. El script lo desactiva automáticamente y fija el foco a distancia media (~50–150 cm). Esto es necesario para que la calibración sea válida durante la detección ArUco.
+> **Nota:** esta guía se escribió y probó en una Raspberry Pi 4 con Raspberry Pi OS (curso anterior, para el antiguo sistema de ArUco). En la Pi 5 con Ubuntu 24.04 la instalación de `picamera2` / `rpicam-still` puede ser distinta y **no está probada**.
+
+> **Importante:** La Camera Module 3 NoIR tiene **autoenfoque (AF)**. El script lo desactiva automáticamente y fija el foco a distancia media (~50–150 cm). Esto es necesario para que la calibración siga siendo válida cuando se use la cámara.
 
 ---
 
@@ -10,7 +12,7 @@ Script de calibración para la **Raspberry Pi Camera Module 3 NoIR** conectada a
 
 | Elemento | Detalles |
 |---|---|
-| Raspberry Pi 4 Model B | Con Raspberry Pi OS instalado (Bullseye o Bookworm) |
+| Raspberry Pi | Probado en Pi 4 con Raspberry Pi OS (Bullseye o Bookworm). Sin probar en Pi 5 + Ubuntu 24.04 |
 | Camera Module 3 NoIR | Conectada al puerto CSI mediante el cable ribbon |
 | Monitor + teclado | Conectados a la Pi directamente, **o** conexión SSH con X11 |
 | Tablero de ajedrez impreso | 8×8 cuadrados (ver sección más abajo) |
@@ -96,7 +98,7 @@ Los tres comandos deben imprimir `OK` sin errores.
 Si el proyecto está en tu ordenador, cópialo a la Pi con `scp`. Desde tu Mac/PC:
 
 ```bash
-scp -r /ruta/local/MOCKUP_ARUCO pi@<IP_DE_LA_PI>:/home/pi/MOCKUP_ARUCO
+scp -r /ruta/local/PAE-EDISA-2026 <USUARIO>@<IP_DE_LA_PI>:~/PAE-EDISA-2026
 ```
 
 Sustituye `<IP_DE_LA_PI>` por la dirección IP de tu Raspberry Pi (puedes verla con `hostname -I` en la Pi).
@@ -104,7 +106,7 @@ Sustituye `<IP_DE_LA_PI>` por la dirección IP de tu Raspberry Pi (puedes verla 
 Si ya tienes el proyecto en la Pi, asegúrate de estar en el directorio correcto:
 
 ```bash
-cd /home/pi/MOCKUP_ARUCO
+cd ~/PAE-EDISA-2026/WP3
 ```
 
 ---
@@ -152,13 +154,13 @@ LENS_POSITION = 4.0   # 0.0=infinito, 10.0=muy cerca
 |---|---|
 | 0.0 | Infinito (> 3 m) |
 | 2.0 | ~2 m |
-| 4.0 | ~50–100 cm ← recomendado para ArUco |
+| 4.0 | ~50–100 cm ← valor por defecto del script |
 | 8.0 | ~20 cm |
 | 10.0 | Muy cerca |
 
-Ajusta `LENS_POSITION` al valor que deje el tablero más nítido en la distancia a la que usarás el detector. Si el tablero se ve desenfocado durante la calibración, modifica este valor.
+Ajusta `LENS_POSITION` al valor que deje el tablero más nítido a la distancia a la que trabajará la cámara (la del dron a la estantería). Si el tablero se ve desenfocado durante la calibración, modifica este valor.
 
-> Usa **el mismo `LENS_POSITION`** en el detector (`medir_error_estatico.py` / `detector_3d.py`) para que la calibración sea válida.
+> Usa **el mismo `LENS_POSITION`** al capturar imágenes para visión: si cambias el foco, la calibración deja de ser válida.
 
 ---
 
@@ -169,7 +171,7 @@ Ajusta `LENS_POSITION` al valor que deje el tablero más nítido en la distancia
 Abre un terminal directamente en la Raspberry Pi y ejecuta:
 
 ```bash
-cd /home/pi/MOCKUP_ARUCO
+cd ~/PAE-EDISA-2026/WP3
 python3 calibration/calibrar_camara.py
 ```
 
@@ -184,7 +186,7 @@ ssh -X pi@<IP_DE_LA_PI>
 Una vez dentro de la Pi:
 
 ```bash
-cd /home/pi/MOCKUP_ARUCO
+cd ~/PAE-EDISA-2026/WP3
 python3 calibration/calibrar_camara.py
 ```
 
@@ -244,7 +246,7 @@ Cuando pulses `q` con suficientes capturas, el script:
 1. **Imprime en el terminal** los parámetros calculados y el bloque de código listo para pegar.
 2. **Guarda el resultado** automáticamente en:
    ```
-   MOCKUP_ARUCO/config/camera_calibration.json
+   WP3/config/camera_calibration.json
    ```
 
 ### Interpretación del error de reproyección
@@ -257,9 +259,9 @@ Cuando pulses `q` con suficientes capturas, el script:
 
 ---
 
-## Paso 9 — Copiar los valores a detector_3d.py
+## Paso 9 — Usar los valores
 
-El script imprime directamente el bloque de código que tienes que copiar y pegar en la clase `AppConfig` de [detector_3d.py](../detector_3d.py). Ejemplo de salida:
+El script imprime los valores en el terminal como código Python (`camera_matrix` y `dist_coeffs`), listos para copiarlos en el código de visión. Ejemplo de salida:
 
 ```python
 camera_matrix: np.ndarray = field(default_factory=lambda: np.array([
@@ -277,7 +279,7 @@ dist_coeffs: np.ndarray = field(default_factory=lambda: np.array([
 ], dtype=np.float64))
 ```
 
-Sustituye los valores actuales en `detector_3d.py` por los que ha generado tu calibración.
+Los mismos valores quedan guardados en `WP3/config/camera_calibration.json`, que es la forma más cómoda de leerlos desde código.
 
 ---
 
@@ -328,4 +330,4 @@ Sigue capturando sin salir. Solo pulsa `q` cuando el contador llegue a 15 o más
 
 ### La calibración tarda mucho
 
-Es normal en la Raspberry Pi 4 — el cálculo puede tardar entre 10 y 30 segundos dependiendo del número de capturas. Espera sin cerrar el terminal.
+Es normal en una Raspberry Pi — el cálculo puede tardar entre 10 y 30 segundos dependiendo del número de capturas. Espera sin cerrar el terminal.

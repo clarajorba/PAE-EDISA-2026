@@ -233,7 +233,7 @@ def guardar_calibracion(camera_matrix, dist_coeffs, mean_err, img_size):
 
 
 def mostrar_resultados(camera_matrix, dist_coeffs, mean_err):
-    """Imprime los resultados para copiar a detector_3d.py."""
+    """Imprime los resultados de la calibración."""
     fx, fy = camera_matrix[0, 0], camera_matrix[1, 1]
     cx, cy = camera_matrix[0, 2], camera_matrix[1, 2]
     d = dist_coeffs.flatten()
@@ -253,7 +253,7 @@ def mostrar_resultados(camera_matrix, dist_coeffs, mean_err):
     print(f"    distorsión = [{', '.join(f'{v:.6f}' for v in d)}]")
     
     print(f"\n  ┌─────────────────────────────────────────────────┐")
-    print(f"  │  COPIA ESTO EN AppConfig de detector_3d.py:     │")
+    print(f"  │  VALORES PARA EL CÓDIGO DE VISIÓN:              │")
     print(f"  └─────────────────────────────────────────────────┘\n")
     
     print(f"    camera_matrix: np.ndarray = field(default_factory=lambda: np.array([")
@@ -294,7 +294,7 @@ def main():
     mostrar_resultados(camera_matrix, dist_coeffs, mean_err)
     guardar_calibracion(camera_matrix, dist_coeffs, mean_err, img_size)
     
-    print("\n  ✅ Listo. Ahora copia los valores a detector_3d.py\n")
+    print(f"\n  ✅ Listo. Valores guardados en {OUTPUT_FILE}\n")
 
 
 if __name__ == "__main__":

@@ -21,7 +21,7 @@ WP1/mockup_aruco/results/*
 !WP1/mockup_aruco/results/.gitkeep
 WP1/mockup_aruco/config/camera_profiles/*
 !WP1/mockup_aruco/config/camera_profiles/.gitkeep
-WP1/mockup_aruco/config/camera_calibration.json
+WP3/config/camera_calibration.json
 WP3.zip
 
 # OS metadata
