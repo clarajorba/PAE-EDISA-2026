@@ -33,8 +33,6 @@ ros2 run dron_control_sistema mavros_node
 ros2 run dron_control_sistema cerebro_node
 ```
 
-`lidar_node` is not part of the normal pipeline — it publishes random poses to `/drone/pose`, which conflicts with `simulador_dron` if both run simultaneously.
-
 ## Standalone Analysis Scripts
 
 Run directly with Python (no ROS daemon needed):
@@ -44,10 +42,9 @@ cd dron_control_sistema/dron_control_sistema/
 
 # Monte Carlo analysis → estadistica_mc.png, mapa_decision.png, mision.json
 python3 simulacion_montecarlo.py
-
-# Interactive 3D visualization → resultado_interactivo.html
-python3 simulacion_interactiva.py
 ```
+
+`simulacion_interactiva.py` (Plotly 3D visualization → `resultado_interactivo.html`) was removed from the active tree; it is recoverable from `main`. It never wrote `mision.json`.
 
 `simulacion_montecarlo.py` also regenerates `mision.json`, which `cerebro_node` reads at startup.
 
@@ -73,7 +70,6 @@ mavros_node     →  /drone/cmd_vel   →  simulador_dron
 | `cerebro_node` | Loads `mision.json`, sequences waypoints, publishes next target when drone reaches current one (XY distance < `margen`, default 0.18 m) |
 | `mavros_node` | Proportional velocity controller: `cmd_vel = target - current_pos` (raw difference, no scaling) |
 | `simulador_dron` | Integrates `cmd_vel` into position (`pos += vel`), publishes pose at 2 Hz, renders live Matplotlib 3D plot |
-| `lidar_node` | Unused in pipeline; publishes random poses for isolated testing |
 
 ### Message Types
 

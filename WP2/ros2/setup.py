@@ -28,11 +28,9 @@ setup(
             'cerebro_node = dron_control_sistema.cerebro_node:main',
             'mavros_node = dron_control_sistema.mavros_node:main',
             'simulador_dron = dron_control_sistema.simulador_dron:main',
-            'lidar_node = dron_control_sistema.lidar_node:main',
             'lidar_bridge_node = dron_control_sistema.lidar_bridge_node:main',
             'pixhawk_menu_node = dron_control_sistema.pixhawk_menu_node:main',
             'spy_mavros = dron_control_sistema.spy_mavros:main',
-            'gcs_node = dron_control_sistema.gcs_node:main',
         ],
     },
 )

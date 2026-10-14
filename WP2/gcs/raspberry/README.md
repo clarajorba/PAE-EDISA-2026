@@ -154,11 +154,6 @@ bash slam_launch.sh [--lidar unitree|rplidar|ydlidar] [--port /dev/ttyUSB0] [--m
 
 ---
 
-### `slam_params.yaml` — Point-LIO Configuration
-Sensor extrinsics, feature extraction thresholds, and filter parameters for the Point-LIO algorithm. Tuned for the Unitree 4D LiDAR L1 mounted on a 250 mm quadcopter frame.
-
----
-
 ### `start_all.sh` — Full Stack Launcher
 One-command startup for all components. Accepts CLI flags to enable/disable individual modules:
 

@@ -28,4 +28,4 @@ Para el análisis de riesgo, usamos:
 
 ## 📂 Archivos Clave
 - `mision.json`: Definición de waypoints.
-- `simulacion_interactiva.py`: Script para generar el HTML con Plotly.
+- `simulacion_interactiva.py`: Script para generar el HTML con Plotly (retirado del repo activo; recuperable desde `main`).

@@ -109,7 +109,7 @@ En el repo hay **tres** formas distintas de hacer esto:
 | `mavros_node.py` | Recibe el siguiente waypoint (`/cerebro/target`) y calcula una velocidad = destino − posición actual. La publica en MAVROS **y** en `/drone/cmd_vel` (para el simulador). Lee la posición de `/mavros/local_position/pose` o, si no hay, de `/drone/pose`. | **Incompleto.** Solo publica cuando llega un waypoint nuevo (no a ≥10 Hz) → PX4 saldría de OFFBOARD a los 0,5 s. No limita la velocidad. No arma, no cambia de modo, no despega. |
 | `spy_mavros.py` | "Espía" de depuración: muestra en colores cómo un comando ENU se convierte a NED y a la trama MAVLink. También tiene teclas para enviar velocidades. | Herramienta de depuración. |
 | `simulador_dron.py` | Simulador de juguete: suma la velocidad recibida a la posición y la dibuja en 3D (matplotlib). | Funciona solo como demo; no tiene física real. |
-| `simulacion_montecarlo.py`, `simulacion_interactiva.py` | Scripts sueltos (sin ROS) que simulan la misión con ruido y **regeneran `mision.json`**. | Funcionan (offline). |
+| `simulacion_montecarlo.py`, `simulacion_interactiva.py` | Scripts sueltos (sin ROS) que simulan la misión con ruido. **Solo `simulacion_montecarlo.py` regenera `mision.json`**; `simulacion_interactiva.py` genera su propia ruta en memoria y un HTML con Plotly. | Funcionan (offline). |
 
 Cómo se arranca (en la Pi, tras compilar el paquete con colcon; MAVROS tiene que estar arrancado aparte):
 ```bash
@@ -431,3 +431,18 @@ PROTOTIPO PUENTE SLAM→PX4 (nunca integrado):
 | Pixhawk por USB `/dev/ttyACM0` a 921600. | Coincide con `COMUNICACION_ROS2_PIXHAWK.md`. **No** coincide con `mavlink_bridge.py` / `start_all.sh` (UART GPIO, 57600). |
 | Dron anterior: F550 + Pixhawk 6C. | `pixhawk_menu_node.py` habla de "F550 (PX4)", pero la GCS y `mavlink_bridge.py` asumen ArduCopter. Parece que el curso pasado se probaron ambos firmwares en momentos distintos. |
 | Raspberry con Ubuntu 24.04 + Jazzy. | La línea `WP2/ros2` se escribió para Humble (Ubuntu 22.04 / Docker); la línea `WP2/gcs/raspberry` para Jazzy. |
+
+---
+
+## 8. Cambios posteriores a esta revisión
+
+Este inventario describe el repo tal como estaba el 13/10/2026. Desde entonces se ha retirado lo siguiente de `feature/AiM` (todo sigue recuperable desde `main`):
+
+| Fecha | Qué | Commit |
+|---|---|---|
+| 13/10 | Calibradores de cámara movidos a `WP3/calibration/`; resto de `WP1/` retirado | `658cf64`, `f0cd1a7` |
+| 14/10 | Captura de WP3 en carpetas de sesión, sin borrar nada (Marc) + `.gitignore` de las sesiones | `58b1f1d`, `216655f` |
+| 14/10 | PDF duplicado, `WP3/models/`, `WP3/modelos/`, `.gitmodules`, `src/.claude/`, `.pyc`, `wget-log`, `receptordron_cdr.py`, `telemetry_publisher_cdr.py` | `9bfd8be` |
+| 14/10 | `lidar_node.py`, `gcs_node.py`, `gui_node.py`, `simulacion_interactiva.py`, `test_comms.py`, `slam_params.yaml` (y sus entradas en `setup.py`) | este commit |
+
+Se conserva `simulacion_montecarlo.py`: es el único generador de `mision.json` y habrá que adaptarlo (altura en Z) para la F4.

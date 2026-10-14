@@ -61,7 +61,6 @@ drone-gcs/
 │   ├── brain_node.py        ← Autonomous waypoint mission planner
 │   ├── mavlink_bridge.py    ← MAVLink ↔ ROS2 bridge (replaces MAVROS)
 │   ├── slam_launch.sh       ← LiDAR driver + Point-LIO SLAM launcher
-│   ├── slam_params.yaml     ← Point-LIO tuning parameters
 │   ├── start_all.sh         ← One-command full stack launcher
 │   ├── rosbridge_boot.sh    ← rosbridge_server startup script
 │   ├── rosbridge.service    ← systemd service (auto-start on boot)
