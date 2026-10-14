@@ -185,8 +185,14 @@ def build_parser() -> argparse.ArgumentParser:
     volumetria.add_argument("--fuente-video", default="tcp://172.20.10.2:8888")
     volumetria.add_argument("--intervalo", type=float, default=1.0)
     volumetria.add_argument("--distancia-lidar", type=float, default=120.0)
-    volumetria.add_argument("--fotos", default="data/fotos_capturades")
-    volumetria.add_argument("--resultados", default="outputs/Resultats_BLOC0")
+    volumetria.add_argument(
+        "--fotos", default="data/fotos_capturades",
+        help="Carpeta de entrada; al capturar se crea una subcarpeta de sesion sin borrar originales.",
+    )
+    volumetria.add_argument(
+        "--resultados", default="outputs/Resultats_BLOC0",
+        help="Carpeta base de salida; cada ejecucion guarda resultados en una subcarpeta nueva.",
+    )
     volumetria.add_argument("--manifest", default="data/etiquetes_magatzem_simulades_manifest.csv")
     volumetria.set_defaults(func=run_volumetria)
 
