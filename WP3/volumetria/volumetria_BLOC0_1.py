@@ -1,10 +1,15 @@
 import os
+import sys
 import cv2
-import time
 import csv
-import threading
+from pathlib import Path
 import numpy as np
 from ultralytics import YOLO, SAM
+
+WP3_DIR = Path(__file__).resolve().parents[1]
+if str(WP3_DIR) not in sys.path:
+    sys.path.insert(0, str(WP3_DIR))
+from app.captura_segura import capturar_frames_de_video, crear_directori_sessio
 
 # Lector de codis de barres simple (CODE39 + CODE128)
 from lector_codis_barres import detectar_codis
@@ -32,39 +37,6 @@ GRAVAR_NOU_VIDEO = True
 FONT_VIDEO = "tcp://172.20.10.2:8888"                 
 INTERVAL_CAPTURA_SEG = 1.0      
 # ==========================================
-
-class CameraStream:
-    def __init__(self, src):
-        self.cap = cv2.VideoCapture(src)
-        self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-        self.frame = None
-        self.running = True
-        self.lock = threading.Lock()
-        self.thread = threading.Thread(target=self._update, daemon=True)
-        self.thread.start()
-
-    def _update(self):
-        while self.running:
-            ok, frame = self.cap.read()
-            if ok:
-                with self.lock:
-                    self.frame = frame
-            else:
-                time.sleep(0.01)
-
-    def read_latest(self):
-        with self.lock:
-            if self.frame is None:
-                return False, None
-            return True, self.frame.copy()
-
-    def is_opened(self):
-        return self.cap.isOpened()
-
-    def release(self):
-        self.running = False
-        self.thread.join(timeout=1)
-        self.cap.release()
 
 def netejar_text_codi(text):
     return text.strip().lstrip("ñ").replace("\x1d", "")
@@ -161,73 +133,37 @@ def extreure_codis_imatge(img, sscc_a_producte, caixes_frame=None):
 
     return deteccions
 
-def capturar_frames_de_video(carpeta_desti, font_video, interval_seg):
-    os.makedirs(carpeta_desti, exist_ok=True)
-    for arxiu in os.listdir(carpeta_desti):
-        ruta_arxiu = os.path.join(carpeta_desti, arxiu)
-        if os.path.isfile(ruta_arxiu):
-            os.remove(ruta_arxiu)
-
-    stream = CameraStream(font_video)
-    time.sleep(1.0) 
-
-    if not stream.is_opened():
-        return False
-
-    ultim_temps_guardat = time.time()
-    comptador_frames = 1
-
-    while True:
-        ret, frame = stream.read_latest()
-        if not ret or frame is None:
-            continue
-
-        temps_actual = time.time()
-        frame_visual = frame.copy()
-        cv2.putText(frame_visual, "Gravant... Prem 'q' per aturar", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
-        cv2.imshow("Captura en Directe (BLOC 0)", frame_visual)
-
-        if (temps_actual - ultim_temps_guardat) >= interval_seg:
-            nom_arxiu = f"frame_{comptador_frames:04d}.jpg"
-            ruta_guardar = os.path.join(carpeta_desti, nom_arxiu)
-            cv2.imwrite(ruta_guardar, frame)
-            ultim_temps_guardat = temps_actual
-            comptador_frames += 1
-
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
-
-    stream.release()
-    cv2.destroyAllWindows()
-    return True
-
 def executar_pipeline_orquestrat():
     print(f"\n=== INICIANT ORQUESTRADOR CENTRAL (AMB DETECCIÓ D'OCLUSIONS) ===")
     
     estanteries, sscc_productes = carregar_manifest(MANIFEST_CSV)
     print(f"Manifest carregat: {len(estanteries)} estanteries, {len(sscc_productes)} SSCC.")
 
+    carpeta_fotos = Path(CARPETA_FOTOS).resolve()
     if GRAVAR_NOU_VIDEO:
-        if not capturar_frames_de_video(CARPETA_FOTOS, FONT_VIDEO, INTERVAL_CAPTURA_SEG): return
-    else:
-        if not os.path.exists(CARPETA_FOTOS): return
+        carpeta_fotos = capturar_frames_de_video(carpeta_fotos, FONT_VIDEO, INTERVAL_CAPTURA_SEG)
+    elif not carpeta_fotos.is_dir():
+        raise FileNotFoundError(f"No existeix la carpeta de fotografies: {carpeta_fotos}")
+
+    arxius = sorted(f.name for f in carpeta_fotos.iterdir()
+                    if f.is_file() and f.suffix.lower() in {'.png', '.jpg', '.jpeg'})
+    if not arxius:
+        raise RuntimeError(f"No hi ha fotografies per processar a: {carpeta_fotos}")
 
     print("\nCarregant models d'Intel·ligència Artificial...")
     detector = YOLO("models/yolov8s-world.pt")
     detector.set_classes(["box"]) 
     segmentador = SAM("models/mobile_sam.pt") 
 
-    os.makedirs(CARPETA_RESULTATS, exist_ok=True)
-    arxius = sorted([f for f in os.listdir(CARPETA_FOTOS) if f.lower().endswith(('.png', '.jpg', '.jpeg'))])
-    
-    if not arxius: return
+    carpeta_resultats = crear_directori_sessio(CARPETA_RESULTATS)
+    print(f"Resultats de la nova sessió: {carpeta_resultats}")
 
     dades_caixes = {}
     dades_codis = {}
     dades_estanteries = set()  # Codis de barres de tipus 'shelf' detectats als frames 
 
     for nom_arxiu in arxius:
-        ruta_completa = os.path.join(CARPETA_FOTOS, nom_arxiu)
+        ruta_completa = os.path.join(carpeta_fotos, nom_arxiu)
         img = cv2.imread(ruta_completa)
         H, W = img.shape[:2]
         img_visual = img.copy() 
@@ -311,7 +247,7 @@ def executar_pipeline_orquestrat():
                     cv2.drawContours(img_visual, [vertexs_dibuix], -1, (0, 0, 255), 3)
                     cv2.putText(img_visual, "PARCIAL", (cx - 40, cy + 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2)
 
-        cv2.imwrite(os.path.join(CARPETA_RESULTATS, nom_arxiu), img_visual)
+        cv2.imwrite(os.path.join(carpeta_resultats, nom_arxiu), img_visual)
 
     print(f"\n=== EXTRACCIÓ COMPLETADA ===")
 
@@ -336,7 +272,7 @@ def executar_pipeline_orquestrat():
         print(f"==========================================")
 
         if len(diccionari_fotos) > 1:
-            res = calcular_volumetria(CARPETA_FOTOS, diccionari_fotos)
+            res = calcular_volumetria(str(carpeta_fotos), diccionari_fotos)
             if res:
                 origen = "Frontals" if res['n_frontals'] > 0 else "Perspectiva"
                 print(f"\n  [{origen}: {res['n_frontals']} frontals, {res['n_perspectiva']} perspectiva]")
