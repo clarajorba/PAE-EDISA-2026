@@ -19,6 +19,11 @@ camera_calibration.json
 WP3/config/camera_calibration.json
 WP3.zip
 
+# WP3 capture/results sessions (one new folder per run, never committed)
+WP3/volumetria/data/fotos_capturades/sessio_*/
+WP3/volumetria/outputs/Resultats_BLOC0/sessio_*/
+WP3/UNIFICACIO_FINAL/resultados_fotos_capturades/sessio_*/
+
 # OS metadata
 .DS_Store
 Thumbs.db
