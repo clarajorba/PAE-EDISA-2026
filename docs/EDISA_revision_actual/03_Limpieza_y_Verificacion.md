@@ -1,10 +1,12 @@
 # Limpieza y verificación del código
 
-**Borrador EDISA — 15/10/2026 — `feature/AiM` / `2c90052e85dcc2e2cd317c6500de3a78371526c3`.** Esta tarea solo crea documentación. Ninguna corrección descrita como pendiente se ha implementado. Fuentes: [07](07_Matriz_Evidencias.md).
+**Revisión documental del 15/10/2026:** auditoría técnica original en `2c90052e85dcc2e2cd317c6500de3a78371526c3`; rama actual `feature/AiM`, HEAD verificado antes de editar `ad9b23a70247cfa09c84e9301f7e64975fd2fda4`. Se incorpora información comunicada por el equipo el 14/10/2026 (E33/E34) y se contrastan solo correcciones posteriores relevantes (E36). Las pruebas originales no se han repetido; no hay inspección física ni validación operacional nuevas.
+
+**Borrador EDISA — 15/10/2026 — `feature/AiM` / `2c90052e85dcc2e2cd317c6500de3a78371526c3`.** La auditoría original creó documentación; esta revisión solo actualiza esos siete borradores. Ninguna corrección descrita como pendiente se ha implementado. Fuentes: [07](07_Matriz_Evidencias.md).
 
 ## Base Git y cambios recientes
 
-El estado inicial no mostraba archivos preparados, modificados ni nuevos. Se han inspeccionado el historial y los archivos actuales, sin modificar el índice ni cambiar de rama.
+El estado inicial de la auditoría original no mostraba archivos preparados, modificados ni nuevos. En la actualización documental el estado inicial vuelve a estar limpio, en `ad9b23a70247cfa09c84e9301f7e64975fd2fda4`. Se preserva la base técnica anterior; solo se contrastan cambios posteriores que afectan a afirmaciones de estos documentos (E36), sin repetir la auditoría ni modificar código.
 
 | Commit | Cambio comprobado | Evaluación |
 |---|---|---|
@@ -18,7 +20,7 @@ El estado inicial no mostraba archivos preparados, modificados ni nuevos. Se han
 | `1584e6d` | Nuevos paquetes `dron_percepcion`, `dron_gcs_bridge`, estructura `dron_bringup`; scripts en `raspberry/` y `tools/` | Añade seis entradas de los dos paquetes nuevos y `logic_bridge` a control. Cambia ejecución a `ros2 run`, búsqueda de scripts y despliegue. |
 | `53d9cdb`, `240b1f4`, `2c90052` | Electron a `gcs/`, visión a `vision/`, actualización de mapas/README | La captura y los dos BLOC0 no cambian de contenido respecto de `c2ae251`; el test cambia import y ruta documentada. |
 
-Comparación `c2ae251..HEAD`, con detección de renombres: **566 renombres, 20 altas, dos modificaciones y dos bajas**. Son resultados de la heurística de Git, no una medida del número de funcionalidades cambiadas. Las dos bajas de esa comparación son `WP2/.gitignore` y el antiguo `WP2/ros2/deploy.sh`: sus responsabilidades aparecen en `.gitignore` y `raspberry/deploy.sh`. Algunas altas son archivos vacíos o registros, no nuevos componentes operativos.
+Comparación original `c2ae251..2c90052`, con detección de renombres: **566 renombres, 20 altas, dos modificaciones y dos bajas**. Son resultados de la heurística de Git, no una medida del número de funcionalidades cambiadas. Las dos bajas de esa comparación son `WP2/.gitignore` y el antiguo `WP2/ros2/deploy.sh`: sus responsabilidades aparecen en `.gitignore` y `raspberry/deploy.sh`. Algunas altas son archivos vacíos o registros, no nuevos componentes operativos.
 
 La retirada de ArUco y la separación de calibradores pertenecen a cambios anteriores y no se repiten. Los calibradores siguen en `vision/calibration/`. Los modelos disponibles son:
 
@@ -39,7 +41,7 @@ Ambos BLOC0 procesan la sesión devuelta y crean otra sesión de resultados. Las
 
 La protección no cubre todo `vision/`: BLOC1 visual y detectores independientes conservan salidas fijas; `detect_CB.py` vacía carpetas de entrada/salida. Los calibradores aún escriben el mismo JSON con modo `w`. No se han ejecutado estas rutas.
 
-## Problemas confirmados y riesgos de regresión
+## Problemas de la auditoría original y correcciones posteriores contrastadas
 
 | Hallazgo | Evidencia | Consecuencia / siguiente comprobación |
 |---|---|---|
@@ -47,7 +49,7 @@ La protección no cubre todo `vision/`: BLOC1 visual y detectores independientes
 | Manifiestos insuficientes | `dron_control/package.xml` solo declara `mavros_msgs` como dependencia de ejecución; nuevos paquetes no declaran todo lo importado | `pymavlink`, Picamera2 y pyzbar requieren gestión adicional; inventariar también dependencias nativas. `rosdep` no prueba lo que no se declara. |
 | Reempaquetado sin prueba de despliegue local | Nuevos `setup.py`, scripts `ros2 run` y `PAE_RASPBERRY_DIR` | Trece destinos estáticos válidos no acreditan instalación en la Pi. `deploy.sh` copia paquetes propios, no drivers ni scripts y no elimina copias remotas retiradas. |
 | Nuevo acceso a `logic_bridge` mediante punto de entrada | `dron_control/setup.py` | Su nombre parece un adaptador de pose, pero al recibir pose también publica velocidades. No incorporarlo a un arranque pasivo. |
-| Topic/frames y setpoints incompatibles | C02–C09 de [02](02_Arquitectura_y_Decisiones.md) | No se puede considerar integrado Point-LIO→misión→vuelo. |
+| Topics, frames y setpoints | C02–C09 de [02](02_Arquitectura_y_Decisiones.md); E36 | El desacuerdo `/Odometry` → `/slam/odom` se corrigió en `7bfe4b0` y se comprobó estáticamente. Permanecen pendientes frames, frescura y setpoints hacia el puente propio; no hay nueva prueba ROS. |
 | UI y backend no coinciden | `cmdGoto`, `cmdVelStop` frente a `_on_cmd` | La GCS muestra `SENT` aunque no exista gestor; falta acuse y rechazo explícito. |
 | Estado de enlace puede quedar obsoleto | `_mav_loop` continúa cuando `recv_match` devuelve `None`; no hay vencimiento por heartbeat recibido | El estado `connected` no prueba enlace reciente. Debe probarse la pérdida silenciosa de comunicación. |
 | Parada local o proceso terminado no equivalen a parada global | `pixhawk_menu_node._parada_emergencia`, `gcs_control._stop` | Otros emisores pueden seguir activos; hace falta autoridad única y cancelación verificable. |
@@ -57,7 +59,7 @@ La protección no cubre todo `vision/`: BLOC1 visual y detectores independientes
 | Importaciones con efectos laterales | Monte Carlo, MJPEG y generadores de documentos | Monte Carlo escribe `mision.json` del directorio actual y genera gráficos sin guardia; MJPEG abre cámara; generadores preparan/escriben archivos. Solo inspeccionados como texto/AST. |
 | Registro y memoria sin política robusta | `lidar_bridge_node` CSV con resolución de segundos; `start_all.sh` logs a segundos; `unilidar_l2.yaml` PCD sin intervalo | Colisiones de logs posibles y crecimiento de memoria del mapa. No corregidos ni ensayados aquí. |
 
-## Verificación realizada
+## Verificación realizada en la auditoría original
 
 Entorno: Python **3.9.6**, `/usr/bin/python3`. No disponibles en el intérprete/PATH examinado: OpenCV, NumPy, Torch, pytest, rclpy, ament_flake8, ament_pep257, PyYAML, ROS2, colcon, Node y npm. No se han instalado dependencias.
 
@@ -71,7 +73,7 @@ Todos los comandos se ejecutaron desde la raíz del repositorio. No se importaro
 | T04 | `python3 -B vision/programa_unificado.py --help` y ayudas de `volumetria`, `detectar-imagenes`, `detectar-video` | **4/4**, salida 0 | Entrada CLI y parsing sin cargar modelos | No ejecuta procesamiento. |
 | T05 | AST de los tres `ros2/*/setup.py`: extraer `console_scripts`, resolver archivo del módulo y buscar `FunctionDef main` | **13/13** | 7 entradas de control, 3 GCS y 3 percepción existentes | No instala paquetes ni lanza nodos; no prueba imports. |
 | T06 | `json.loads` de `gcs/package.json`, `gcs/package-lock.json`, misión; `ElementTree.parse` de todos los `ros2/**/package.xml` | **3 JSON y 6 XML** válidos; misión 233 hitos | Formato de archivos | No valida contenido ROS2 completo, esquema semántico ni YAML. |
-| T07 | `git diff --check`; `git diff --cached --check`; `git diff --check c2ae251 HEAD` | **3/3**, salida 0 | Errores de whitespace en cambios versionados | No acredita funcionamiento; no incluye documentos nuevos sin seguimiento. |
+| T07 | `git diff --check`; `git diff --cached --check`; `git diff --check c2ae251 2c90052` | **3/3**, salida 0 | Errores de whitespace en cambios versionados | No acredita funcionamiento; no incluye documentos nuevos sin seguimiento. |
 | T08 | Comparación de SHA-256 y AST/búsquedas de interfaces; comparación de blobs anteriores con rutas nuevas | Misión y modelos leídos; captura/BLOC0 idénticos a base; acciones UI/gestor contrastadas | Conservación e interfaces por código | No ejecución ROS ni validación visual del navegador. |
 | T09 | Comprobación de enlaces Markdown mediante `Path.exists`, tablas y bloques de código; búsqueda de términos excluidos; espacios finales y duración de diapositivas | **104 enlaces locales válidos**, siete archivos; 12 diapositivas, **18 minutos** | Integridad documental y alcance profesional de los borradores | Mermaid no se ha renderizado; la documentación necesita revisión humana antes de publicar. |
 
@@ -128,7 +130,17 @@ Los tests de `ros2/dron_control/test/` son linters ament; el de copyright está 
 
 Se calculó una huella inicial de todos los **589 archivos existentes** fuera de `.git` y `__pycache__`, incorporando ruta y SHA-256 de contenido: `2d8989ad18cc3c56254e8dc060bfcf54f34598f84bb7671a6cc5575326c23e9c`. La repetición final, excluyendo esta carpeta documental nueva, no llegó a completarse: hubo un `TimeoutError` de lectura, un reintento sobre un GIF de terceros y otra lectura prolongada en `vision/`; se interrumpió esa comprobación. **No se afirma una igualdad de hashes global antes/después que no se haya obtenido.**
 
-La última consulta Git completada muestra únicamente los siete documentos nuevos sin seguimiento; no hay cambios preparados ni diferencias de código. Rama y HEAD siguen siendo los indicados. Las tres comprobaciones T07 iniciales aprobaron; repeticiones finales de `git diff --check` agotaron límites de 30 y 90 segundos. Son incidencias de acceso observadas, sin causa determinada, no evidencia de un error de código ni de corrupción. No se han aplicado reparaciones al índice ni al sistema de archivos. La revisión solo ha escrito en esta carpeta nueva.
+Al cierre de la auditoría original, la última consulta Git completada mostraba únicamente los siete documentos nuevos sin seguimiento; no había cambios preparados ni diferencias de código. Ese estado corresponde a `2c90052`, no al HEAD de esta actualización documental. Las tres comprobaciones T07 iniciales aprobaron; repeticiones finales de `git diff --check` agotaron límites de 30 y 90 segundos. Son incidencias de acceso observadas, sin causa determinada, no evidencia de un error de código ni de corrupción. No se han aplicado reparaciones al índice ni al sistema de archivos. La auditoría original solo escribió en esta carpeta, entonces nueva; esta actualización edita los mismos siete archivos.
+
+## Contexto nuevo y alcance de esta actualización
+
+El equipo identifica X500 V2, Pixhawk 6X, Raspberry Pi 5 (kit DB-TRONIC), Unitree 4D LiDAR L2 (1 unidad declarada) y Camera Module 3 (1 unidad declarada; variante pendiente). E33 recoge la comunicación del 14/10/2026; E34 distingue los componentes descritos en los kits y E35 la inspección pendiente. F550 y Pixhawk 6C/6C Mini son referencias históricas, no equipo principal actual. El supuesto NoIR del calibrador no identifica la cámara suministrada.
+
+La diferencia Git desde `2c90052` incluye la corrección de odometría (`7bfe4b0`), cambios del menú de despegue/filtro NaN (`dbe2e1a`), guía SITL e informes, incorporación de estos borradores y retirada de `Documentation/.gitkeep`. Se han leído solo los cambios pertinentes (E36). El menú ahora solicita subida continua en OFFBOARD con objetivo/timeout; esto es código inspeccionado, no una nueva validación de despegue ni un acuse de ejecución de misión.
+
+Los resultados T01–T09 anteriores permanecen como evidencia histórica y no se han vuelto a ejecutar ni ampliado por conocer los modelos. Las comprobaciones nuevas se limitan a consistencia documental, enlaces/referencias, diff, alcance de archivos y las lecturas estáticas de E36.
+
+**Comprobación documental actual:** siete archivos actualizados, 110 enlaces locales válidos, evidencias E01–E36, preguntas D01–D12, 25 filas de inventario (incluidos subcomponentes; HW06 queda reservado) y 12 diapositivas con 18 minutos previstos. `git diff --check -- docs/EDISA_revision_actual` pasa. Git muestra únicamente estos siete documentos modificados, sin cambios preparados; rama y HEAD permanecen en `feature/AiM` / `ad9b23a`. Se mantiene la incertidumbre física y no se asignan nuevas pruebas funcionales.
 
 ## Clasificación de limpieza pendiente
 
@@ -157,11 +169,11 @@ P0 bloquea una decisión o preservación importante; P1 habilita la primera inte
 
 | ID | Prioridad | Componente / tarea y archivos afectados | Complejidad | Dependencias | Pruebas necesarias | Criterio de finalización |
 |---|---|---|---|---|---|---|
-| N01 | P0 | Confirmar inventario/firmware/SO; ficha [04](04_Inventario_Componentes_Dron.md) | LOW | Acceso y responsable EDISA | Inspección registrada, sin vuelo | Modelos, versiones, conexiones y pendientes firmados por responsable. |
+| N01 | P0 | Contrastar equipo declarado X500 V2/Pixhawk 6X/Pi 5/L2/Camera Module 3; completar firmware/SO/variante y montaje en ficha [04](04_Inventario_Componentes_Dron.md) | LOW | Declaración E33, descripción de kits E34 y responsable EDISA | Inspección registrada, sin vuelo | Modelos/series, cantidades reales, alimentación, versiones y pendientes documentados por responsable. |
 | N02 | P0 | Validar reempaquetado y coherencia distro: `ros2/*/{setup.py,package.xml}`, `raspberry/deploy.sh` | MEDIUM | Entorno Linux aislado acordado; N01 para despliegue real | Build/install y resolución de 13 ejecutables; imports sin crear nodos; dependencias declaradas | Instalación limpia reproducible sin cámara, serie ni procesos de control. |
 | N03 | P0 | Decidir uso y proteger/aislar rutas destructivas: `detect_CB.py`, `tools/receptordron.py`, calibradores | MEDIUM | Usuarios manuales confirmados | Directorios temporales, hashes, error inicial, repetición | No se pierde ningún original ni resultado/configuración previo; scripts obsoletos fuera del flujo operativo. |
 | N04 | P0 | Confirmar función de Monte Carlo y destino histórico; generador `densificar`, `mision.json` | LOW | Confirmación de dependencia externa y copia de misión | Comparación de misión, importación aislada del eventual extractor | Experimento no se importa en runtime; misión actual intacta y generación explícita si sigue necesaria. |
-| N05 | P1 | Contrato de pose: Point-LIO, consumidores de `/Odometry`, adaptador propio | MEDIUM | Convenio de frames/tiempo | Pose conocida, movimiento de ejes, datos antiguos/ausentes; reproducción sin vuelo | Un topic tipado; transformación y validez documentadas y verificadas. |
+| N05 | P1 | Contrato de pose: Point-LIO, consumidores actuales de `/slam/odom`, adaptador propio | MEDIUM | Convenio de frames/tiempo | Pose conocida, movimiento de ejes, datos antiguos/ausentes; reproducción sin vuelo | Un topic tipado; transformación y validez documentadas y verificadas. |
 | N06 | P1 | Primera observación durable: nuevo adaptador, esquema de inventario y GCS | MEDIUM | N05 o pose reproducida explícita; definición EDISA de código/ubicación | Imagen/pose fijas, transacción, reinicio, consulta GCS, hashes | Dos ejecuciones aisladas; dato trazable persistente visible tras reiniciar. |
 | N07 | P1 | Cámara única: `camera_publisher`, MJPEG, grabador | MEDIUM | N01 y contrato imagen/pose | Reproducción, dos consumidores simultáneos, timestamps y fallo de escritura | Una adquisición; sin colisión; sesión e imagen asociadas correctamente. |
 | N08 | P1 | Validación ML offline: dos BLOC0, modelos/configuración | MEDIUM | Dependencias preparadas y conjunto autorizado; checkpoint GroundingDINO si se compara | Entradas inmutables, métricas de código/caja/ID y latencia | Una pipeline de referencia con resultados reproducibles, versión y límites medidos. |

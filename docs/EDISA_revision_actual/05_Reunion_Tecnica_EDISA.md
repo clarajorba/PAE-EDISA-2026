@@ -1,5 +1,7 @@
 # Preparación de la reunión técnica con EDISA
 
+**Revisión documental del 15/10/2026:** auditoría técnica original en `2c90052e85dcc2e2cd317c6500de3a78371526c3`; rama actual `feature/AiM`, HEAD verificado antes de editar `ad9b23a70247cfa09c84e9301f7e64975fd2fda4`. Se incorpora información comunicada por el equipo el 14/10/2026 (E33/E34) y se contrastan solo correcciones posteriores relevantes (E36). Las pruebas originales no se han repetido; no hay inspección física ni validación operacional nuevas.
+
 **Borrador — 15/10/2026.** Base: `feature/AiM` / `2c90052`. Documentación preparada mediante revisión del repositorio, pruebas con dobles y comprobaciones estáticas. No acredita una demostración autónoma ni una inspección física.
 
 ## Resultado esperado de la reunión
@@ -20,7 +22,7 @@ Compartir una imagen precisa del sistema existente y acordar un primer hito veri
 
 | Componente | Explicación para la reunión | Mensaje de estado y evidencia |
 |---|---|---|
-| Hardware | El ordenador embarcado coordinaría sensores y controladora. El repositorio solo permite identificar referencias de diseño. | Inventario físico por completar; ningún componente confirmado por inspección. [04](04_Inventario_Componentes_Dron.md), E28. |
+| Hardware | El equipo declara X500 V2/Pixhawk 6X, Raspberry Pi 5 (kit DB-TRONIC), Unitree 4D LiDAR L2 y Camera Module 3 — variante pendiente de confirmar. | Identificación comunicada el 14/10/2026; contenido de kit separado de inspección/funcionamiento. [04](04_Inventario_Componentes_Dron.md), E28/E33–E35. |
 | LiDAR y Point-LIO | El driver publica nube/IMU; Point-LIO estima pose y genera mapa. | Interfaces implementadas por código; ejecución actual y calidad sin reproducir. E04–E06. |
 | Misión | Hay un coordinador con JSON y otro con SQLite. | No hay una misión operativa única ni gestión completa de estados. E07–E08. |
 | Vuelo y comunicación | MAVROS y el puente propio son alternativas distintas, no intercambiables por tener topics con nombres parecidos. | El puente propio cubre telemetría y cinco órdenes; no consume setpoints de navegación. Firmware real pendiente. E09–E12. |
@@ -32,7 +34,7 @@ Compartir una imagen precisa del sistema existente y acordar un primer hito veri
 
 ## Puntos que deben explicarse con precisión
 
-- La reorganización facilita mantenimiento, pero no ha resuelto automáticamente las conexiones. `/slam/odom` y `/Odometry` siguen sin coincidir en varios componentes.
+- La reorganización facilita mantenimiento, pero no completa las conexiones. El desacuerdo anterior `/Odometry` → `/slam/odom` ya está corregido en los tres consumidores contrastados (E36); frames, frescura e integración real siguen pendientes.
 - No debe afirmarse que existe inventario SQLite integrado ni que las órdenes de misión alcanzan siempre la controladora. La GCS muestra envíos, no acuses de ejecución.
 - La captura segura protege las dos pipelines principales de volumetría. Siguen existiendo scripts independientes que borran imágenes o sustituyen resultados/configuración.
 - La guía SITL aporta experiencia declarada en otro equipo; esta revisión no reproduce vuelo simulado ni certifica hardware.
@@ -42,22 +44,24 @@ Compartir una imagen precisa del sistema existente y acordar un primer hito veri
 
 | ID | Pregunta / decisión | Quién debe aportar información | Cierre esperado |
 |---|---|---|---|
-| D01 | ¿Qué controladora y firmware están disponibles? ¿Se conservarán? | Responsable de hardware | Modelo/versión contrastados; selección del adaptador de vuelo después de esa confirmación. |
-| D02 | ¿Qué ordenador, SO, LiDAR y cámaras forman el equipo real? | Responsable del equipo | Inventario con fotos, conexiones, disponibilidad y responsable. |
+| D01 | ¿Se confirma Pixhawk 6X, con qué revisión, firmware y versión instalados? ¿Se conservarán? | Responsable de hardware | Etiqueta/modelo y firmware contrastados; no deducir PX4 del nombre del kit. Elegir adaptador después. |
+| D02 | ¿EDISA confirma X500 V2, Pi 5 (DB-TRONIC), Unitree L2 y una Camera Module 3? ¿Qué piezas y accesorios están disponibles, montados y operativos? | Responsable del equipo | Inventario contrastado, recuentos reales, fotos, ubicación y responsable; separar declaración y prueba. |
 | D03 | ¿Qué significa un registro de inventario: producto, caja, unidad logística o lectura? | Responsable del proceso de almacén | Identificadores, duplicados, relación con estantería, precisión y campos obligatorios. |
 | D04 | ¿Cómo se representará la ubicación: estantería o coordenadas de mapa? | Responsable técnico y de almacén | Convenio de referencia, unidades y tolerancia; posición del dron separada de posición del producto. |
-| D05 | ¿Dónde se ejecutará la inferencia y qué latencia es aceptable? | Responsable técnico | Recursos disponibles y criterio de selección entre pipelines. |
+| D05 | ¿Qué RAM, SO y distribución/versión ROS2 tiene Pi 5? ¿Dónde se ejecutará la inferencia y con qué latencia objetivo? | Responsable técnico | Configuración real registrada y recursos para seleccionar pipeline; RAM no inferida del catálogo. |
 | D06 | ¿Podemos usar imágenes/poses de prueba y conservarlas con su procedencia? | Responsable de datos | Conjunto de prueba autorizado, códigos esperados y retención de evidencias. |
 | D07 | ¿Qué scripts siguen ejecutándose manualmente o desde equipos externos? | Desarrolladores y operadores | Usuarios de Monte Carlo, receptor, `detect_CB.py`, scripts y servicios antes de archivar. |
-| D08 | ¿Quién valida seguridad y autoriza banco/entorno controlado? | Responsable de operación | Responsable, procedimiento y criterios previos; la limpieza no autoriza vuelo. |
+| D08 | ¿Qué comprobaciones de integración y seguridad ya se han realizado, con qué evidencias? ¿Quién autoriza las siguientes pruebas? | Responsable de operación | Registros y responsable; separar inspección, banco, SITL y vuelo. La identificación del kit no autoriza movimiento. |
 | D09 | ¿Se acepta como primer hito una observación durable visible en GCS sin vuelo? | Responsable del proyecto | Alcance y criterios de aceptación de [02](02_Arquitectura_y_Decisiones.md). |
 | D10 | ¿Dónde se revisan y aprueban documentos e inventario en SharePoint? | Responsable documental | Carpeta, permisos y responsables de revisión; carga manual posterior. |
+| D11 | ¿Qué variante y óptica tiene Camera Module 3? ¿Cuáles son la red, alimentación, montaje y calibración efectivos del L2 y la cámara? | Responsable de sensores | Modelo/óptica, CSI, configuración de red, orientación y extrínsecas con evidencia. |
+| D12 | ¿Qué batería, cargador, RC, radio/enlaces y reguladores se usan? ¿Se confirma la referencia y el marcado 433 MHz de la SiK? ¿Cómo se alimenta Pi 5 a bordo? | Responsable eléctrico y de comunicaciones | Esquema y equipos identificados; fuente externa de 27 W separada de batería y alimentación de vuelo. |
 
 Si D01/D02 quedan pendientes, se puede continuar con reproducción offline e instalación aislada. No es necesario decidir hoy una arquitectura de vuelo para probar persistencia y trazabilidad.
 
 ## Acciones recomendadas para acordar
 
-1. Completar inspección y versión de hardware con la ficha preliminar.
+1. Contrastar los modelos declarados, completar el recuento, firmware/versión, SO/ROS2, variante de cámara y montaje con la ficha preliminar; no repetir la identificación como si no existiera información del equipo.
 2. Validar en entorno aislado el empaquetado reciente y sus dependencias, sin iniciar nodos.
 3. Definir contrato mínimo de observación y un conjunto de entrada reproducible.
 4. Decidir si se protegen o archivan los scripts con borrado, después de confirmar usos externos.

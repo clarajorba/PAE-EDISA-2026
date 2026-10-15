@@ -1,5 +1,7 @@
 # Guion de presentación técnica
 
+**Revisión documental del 15/10/2026:** auditoría técnica original en `2c90052e85dcc2e2cd317c6500de3a78371526c3`; rama actual `feature/AiM`, HEAD verificado antes de editar `ad9b23a70247cfa09c84e9301f7e64975fd2fda4`. Se incorpora información comunicada por el equipo el 14/10/2026 (E33/E34) y se contrastan solo correcciones posteriores relevantes (E36). Las pruebas originales no se han repetido; no hay inspección física ni validación operacional nuevas.
+
 **Borrador para EDISA — 15/10/2026 — base `feature/AiM` / `2c90052`.**
 
 Duración propuesta: **18 minutos**, 12 diapositivas. Los identificadores E remiten a [07_Matriz_Evidencias.md](07_Matriz_Evidencias.md). No utilizar imágenes de resultados históricos como prueba de una ejecución integrada actual. Todos los diagramas propuestos deben llevar la etiqueta «Propuesta».
@@ -32,33 +34,33 @@ Duración propuesta: **18 minutos**, 12 diapositivas. Los identificadores E remi
 
 **Evidencia:** E01–E03/E24; comparación `c2ae251..2c90052`, tabla Git de [03](03_Limpieza_y_Verificacion.md).
 
-## Diapositiva 3 — Hardware: referencias frente a realidad
+## Diapositiva 3 — Equipo declarado y verificación pendiente
 
 **Duración: 1,5 minutos.**
 
-- Software/documentos mencionan Raspberry Pi, Unitree, cámara y Pixhawk.
-- Modelo real, firmware, cantidad y estado requieren inspección.
-- PX4 en la guía SITL y ArduCopter en el puente son supuestos distintos.
+- Equipo comunicado el 14/10/2026: Holybro X500 V2 con Pixhawk 6X y Raspberry Pi 5 — kit DB-TRONIC.
+- Unitree 4D LiDAR L2 y Raspberry Pi Camera Module 3 — variante pendiente de confirmar: una unidad declarada de cada uno.
+- Contenido de kits, software desarrollado y verificación física/operacional son evidencias distintas; firmware, RAM y montaje siguen pendientes.
 
-**Visual sugerido:** cuatro componentes con etiqueta «Pendiente de verificación física» y extracto vacío de la ficha de inventario.
+**Visual sugerido:** X500 V2/Pixhawk 6X, Pi 5, L2 y Camera Module 3 con etiqueta «Declarado por el equipo; sin inspección independiente». Recuadro separado con contenido de kits y pendientes.
 
-**Notas:** «No vamos a completar el inventario por inferencia a partir del código. Confirmar el equipo evita elegir una interfaz de vuelo que luego no corresponda al firmware instalado».
+**Notas:** «Ahora contamos con modelos comunicados por el equipo, no solo referencias del código. Los kits describen componentes y accesorios, pero no demuestran su montaje ni pruebas. Seis hélices suministradas no significan seis motores. El nombre PX4 Development Kit no prueba firmware PX4 instalado, y la Camera Module 3 no tiene variante NoIR/Wide confirmada».
 
-**Evidencia:** E04/E11/E25/E28/E29; ficha [04](04_Inventario_Componentes_Dron.md).
+**Evidencia:** E04/E11/E25/E28/E29/E33–E35; ficha [04](04_Inventario_Componentes_Dron.md).
 
 ## Diapositiva 4 — Localización y mapa
 
 **Duración: 1,5 minutos.**
 
 - Unitree aporta nube e IMU; Point-LIO produce pose, odometría y TF.
-- La salida es `/slam/odom`; parte del software espera `/Odometry`.
+- La salida y los tres consumidores contrastados ya coinciden en `/slam/odom`; corrección estática E36, sin nueva prueba ROS.
 - Hay que definir transformación al cuerpo, calidad y antigüedad de pose.
 
 **Visual sugerido:** driver → Point-LIO → pose normalizada; marcar el desacuerdo de topic y el frame pendiente.
 
-**Notas:** «Point-LIO estima el movimiento de su referencia sensorial. Antes de usarlo para guiar el dron o localizar una lectura, deben quedar claros el origen, los ejes y la validez temporal».
+**Notas:** «La discrepancia anterior de nombre de topic está corregida. Coincidir en el nombre no valida la integración: para guiar el X500 V2 o ubicar una lectura deben verificarse origen, ejes, transformación L2/cámara/cuerpo y validez temporal».
 
-**Evidencia:** E04–E06/E12/E19; conexiones C01–C04/C09/C14 de [02](02_Arquitectura_y_Decisiones.md).
+**Evidencia:** E04–E06/E12/E19/E36; conexiones C01–C04/C09/C14 de [02](02_Arquitectura_y_Decisiones.md).
 
 ## Diapositiva 5 — Navegación y comunicación con la controladora
 
@@ -70,7 +72,7 @@ Duración propuesta: **18 minutos**, 12 diapositivas. Los identificadores E remi
 
 **Visual sugerido:** dos caminos paralelos; señalar que el setpoint de `brain_node` no entra en `mavlink_bridge`.
 
-**Notas:** «La recomendación es elegir un coordinador y un adaptador de vuelo, reutilizando lectura de misión, progreso y telemetría. La elección de hardware se mantiene abierta; la guía de SITL orienta una prueba PX4/MAVROS, no certifica la controladora física».
+**Notas:** «La recomendación es elegir un coordinador y un adaptador de vuelo, reutilizando lectura de misión, progreso y telemetría. El equipo declara Pixhawk 6X, pero su firmware sigue pendiente; el nombre del kit y la guía de SITL no seleccionan por sí solos MAVROS ni certifican la controladora física».
 
 **Evidencia:** E07–E12/E25; C05–C11 y alternativas de [02](02_Arquitectura_y_Decisiones.md).
 
@@ -134,7 +136,7 @@ Duración propuesta: **18 minutos**, 12 diapositivas. Los identificadores E remi
 
 **Duración: 1,5 minutos.**
 
-- 46 pruebas con dobles, 108 archivos Python, cinco scripts shell.
+- Auditoría original: 46 pruebas con dobles, 108 archivos Python, cinco scripts shell; no se han repetido en esta actualización documental.
 - 13 entradas ROS2 contrastadas estáticamente, JSON/XML y cuatro ayudas CLI.
 - ROS/SITL, Electron, ML real y hardware no ejecutados en esta revisión.
 
@@ -162,7 +164,7 @@ Duración propuesta: **18 minutos**, 12 diapositivas. Los identificadores E remi
 
 **Duración: 1 minuto.**
 
-- Confirmar hardware, firmware, SO y responsable de pruebas.
+- Contrastar equipo declarado, firmware de Pixhawk 6X, RAM/SO/ROS2 de Pi 5, variante de cámara, red/montaje L2 y alimentación; acordar responsable de pruebas.
 - Acordar registro de inventario, ubicación y criterio de primera demo.
 - Validar empaquetado aislado y cerrar responsables/fechas.
 
@@ -170,4 +172,4 @@ Duración propuesta: **18 minutos**, 12 diapositivas. Los identificadores E remi
 
 **Notas:** «La revisión permite una reunión técnica útil con preguntas abiertas explícitas. No necesitamos presentar el sistema como terminado: necesitamos acordar el siguiente resultado que podamos verificar».
 
-**Evidencia:** [05_Reunion_Tecnica_EDISA.md](05_Reunion_Tecnica_EDISA.md), D01–D10; plan N01–N14; inventario HW01–HW16.
+**Evidencia:** [05_Reunion_Tecnica_EDISA.md](05_Reunion_Tecnica_EDISA.md), D01–D12; plan N01–N14; inventario HW01–HW17 y subcomponentes, con HW06 reservado para opción no declarada.

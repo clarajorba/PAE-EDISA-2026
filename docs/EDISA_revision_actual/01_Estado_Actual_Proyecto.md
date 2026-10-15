@@ -1,8 +1,10 @@
 # Estado actual del proyecto PAE-EDISA
 
+**Revisión documental del 15/10/2026:** auditoría técnica original en `2c90052e85dcc2e2cd317c6500de3a78371526c3`; rama actual `feature/AiM`, HEAD verificado antes de editar `ad9b23a70247cfa09c84e9301f7e64975fd2fda4`. Se incorpora información comunicada por el equipo el 14/10/2026 (E33/E34) y se contrastan solo correcciones posteriores relevantes (E36). Las pruebas originales no se han repetido; no hay inspección física ni validación operacional nuevas.
+
 **Borrador para revisión técnica de EDISA — 15/10/2026.**
 
-Base examinada: rama `feature/AiM`, commit `2c90052e85dcc2e2cd317c6500de3a78371526c3`. El árbol de trabajo estaba limpio al iniciar esta revisión. Los siete documentos de esta carpeta son nuevos; no se ha cambiado código, configuración, datos ni documentación anterior. Las referencias E01–E32 se desarrollan en [la matriz de evidencias](07_Matriz_Evidencias.md).
+La auditoría original examinó `feature/AiM` en `2c90052e85dcc2e2cd317c6500de3a78371526c3` y creó estos siete documentos. Esta actualización modifica los borradores existentes, incorpora información del equipo y corrige únicamente los cambios posteriores contrastados en E36. El árbol de trabajo estaba limpio al comenzar ambas tareas. Las referencias E01–E36 se desarrollan en [la matriz de evidencias](07_Matriz_Evidencias.md).
 
 ## Objetivo y resumen ejecutivo
 
@@ -12,9 +14,9 @@ El repositorio contiene piezas reutilizables de localización LiDAR, navegación
 
 La reorganización del 15/10 mejora la separación por responsabilidades y convierte nodos antes sueltos en paquetes ROS2. Conserva las dos pipelines principales de volumetría y su captura segura. Sin embargo, mover y empaquetar código no demuestra su funcionamiento. La guía nueva de simulación declara pruebas PX4/SITL en otro equipo; esta revisión no las ha reproducido ni dispone de registros de ejecución asociados que permitan certificarlas.
 
-La verificación ejecutada aquí incluye **46 pruebas automatizadas con dobles**, sintaxis de **108 archivos Python**, **cinco scripts de shell**, coherencia estática de **13 puntos de entrada ROS2**, JSON/XML y las cuatro ayudas CLI de visión. No se ha iniciado ROS2, Electron, inferencia ML, un simulador de vuelo ni hardware. Véase [el detalle reproducible y sus límites](03_Limpieza_y_Verificacion.md).
+La verificación ejecutada en la auditoría original incluyó **46 pruebas automatizadas con dobles**, sintaxis de **108 archivos Python**, **cinco scripts de shell**, coherencia estática de **13 puntos de entrada ROS2**, JSON/XML y las cuatro ayudas CLI de visión. No se ha iniciado ROS2, Electron, inferencia ML, un simulador de vuelo ni hardware. Véase [el detalle reproducible y sus límites](03_Limpieza_y_Verificacion.md).
 
-## Mapa del repositorio actual
+## Mapa del repositorio
 
 ```text
 ros2/
@@ -40,10 +42,9 @@ sim/                      Resultados históricos y enlace a la guía SITL.
 tools/                    Receptor imagen+pose y utilidades de diagnóstico.
 docs/                     Arquitectura, estado, configuración y entregables previos.
 data/                     Política para datos grandes; solo README en esta revisión.
-Documentation/            Solo .gitkeep; no aplicación adicional.
 ```
 
-Los nombres físicos `WP2/`, `WP3/` y `src/` ya no describen la estructura activa. `ros2/dron_control/` mantiene el nombre de paquete `dron_control_sistema`; no debe inferirse el nombre ROS2 a partir de la carpeta. E01–E03.
+La carpeta vacía `Documentation/` fue retirada después de la auditoría original (`ad9b23a`); no era una aplicación. Los nombres físicos `WP2/`, `WP3/` y `src/` ya no describen la estructura activa. `ros2/dron_control/` mantiene el nombre de paquete `dron_control_sistema`; no debe inferirse el nombre ROS2 a partir de la carpeta. E01–E03.
 
 ## Estados utilizados
 
@@ -63,12 +64,12 @@ Los archivos se indican desde la raíz del repositorio. Una fila I puede tener p
 
 | Componente | Archivos principales | Funcionalidad implementada y entrada → salida | Evidencia de verificación | Estado | Funcionalidad pendiente / limitación | Dependencias de integración | Próxima acción |
 |---|---|---|---|---|---|---|---|
-| Hardware y ordenador embarcado | `raspberry/`, calibradores, driver Unitree | Supuestos de Pi, cámara, LiDAR y Pixhawk | Referencias de código/documentación E28; sin inspección física | D | Modelo, cantidad, firmware, estado y montaje reales desconocidos | Inspección EDISA | Completar inventario físico |
+| Hardware y ordenador embarcado | Información del equipo del 14/10/2026 y referencias software E28/E33–E35 | Equipo declarado: Holybro X500 V2, Pixhawk 6X, Raspberry Pi 5 (kit DB-TRONIC), Unitree 4D LiDAR L2 y Raspberry Pi Camera Module 3 — variante pendiente de confirmar | Declaración del equipo; componentes de kit descritos por separado; sin inspección física independiente | D | Modelos principales identificados por el equipo; firmware, SO, RAM, montaje y funcionamiento pendientes; cantidades declaradas solo donde constan | Confirmación documental y física por EDISA | Completar y contrastar inventario, sin elevar el estado funcional del software |
 | Driver LiDAR | `ros2/third_party/unilidar_sdk2/` | SDK/UDP o serie → `PointCloud2` e `Imu` | Configuración y código inspeccionados E04; sin compilación/ejecución | I | Validar dispositivo, red, timestamps y funcionamiento sin pantalla | Unitree real, SDK y ROS2 | Reproducir con datos grabados y después banco |
 | Localización y mapa | `ros2/third_party/point_lio_ros2/` | Nube+IMU → `/slam/odom`, `/slam/pose`, TF, nube registrada | Revisión C++/configuración E05; sintaxis Python de launch | I | Calibración extrínseca al dron, calidad, frescura y contrato de frames | Driver y datos representativos | Fijar contrato de pose y reproducir una grabación |
 | Adaptación TF a misión | `ros2/dron_control/dron_control_sistema/lidar_bridge_node.py` | TF → array `[x,y,z,yaw]` y CSV | E06; análisis estático | P | Pierde timestamp/frame; no rechaza TF antigua; CSV con nombre a segundos | TF `camera_init` → `aft_mapped` | Conservar responsabilidad y definir interfaz tipada |
 | Misión JSON | `.../cerebro_node.py`, `.../mision.json` | Pose array+233 hitos → siguiente objetivo | JSON válido, hash E07; sin misión ejecutada | P | Avance solo XY, envío puntual, sin pausa/reanudar ni confirmación de captura | `/drone/pose`, controlador | Comparar con coordinador SQLite antes de elegir uno |
-| Misión SQLite | `ros2/dron_gcs_bridge/dron_gcs_bridge/brain_node.py` | SQLite+`/Odometry` → setpoints y progreso JSON | Esquema SQL y `_tick` inspeccionados E08 | P | Topic de odometría incompatible; avance solo XY; misión por defecto; sin control de frescura | MAVROS real, pose normalizada, autoridad de misión | Probar contrato sin salida de vuelo |
+| Misión SQLite | `ros2/dron_gcs_bridge/dron_gcs_bridge/brain_node.py` | SQLite+`/slam/odom` parametrizable → setpoints y progreso JSON | Esquema SQL y `_tick` inspeccionados E08; corrección del topic contrastada estáticamente E36 | P | Avance solo XY; misión por defecto; sin control de frescura ni integración de vuelo verificada | MAVROS real, pose normalizada, autoridad de misión | Probar contrato sin salida de vuelo |
 | Control mediante MAVROS | `.../mavros_node.py`, `.../pixhawk_menu_node.py` | Objetivo/teclado → velocidad y servicios MAVROS | E09–E10; guía SITL declarada E25 | E | Nodo automático sin flujo continuo ni límites; menú no sustituye controlador ni parada global | MAVROS y firmware confirmado | Validar en SITL aislado, con un único emisor |
 | Puente propio MAVLink | `ros2/dron_gcs_bridge/dron_gcs_bridge/mavlink_bridge.py` | Serie MAVLink ↔ telemetría ROS y cinco órdenes JSON | Gestores inspeccionados E11; sin enlace ejecutado | P | Tabla de modos ArduCopter, sin setpoints autónomos, sin ACK de órdenes a GCS | Firmware, puerto y contrato de órdenes | Mantener alternativa hasta confirmar controladora |
 | Pose externa para controladora | `.../logic_bridge.py` | `/slam/pose` → `/mavros/vision_pose/pose` | E12; nuevo punto de entrada estáticamente válido | E | Reenvío sin transformación ni validez; también emite movimiento de prueba | TF cuerpo/sensor y configuración del estimador | Separar responsabilidades en una tarea posterior |
@@ -89,8 +90,8 @@ Los archivos se indican desde la raíz del repositorio. Una fila I puede tener p
 
 ## Bloqueos y próximos hitos
 
-1. **Confirmar el equipo real.** Firmware, SO, sensores y montaje determinan qué adaptar; ninguna referencia del código confirma existencias físicas.
-2. **Estabilizar instalación y contratos.** Elegir provisionalmente un entorno reproducible, resolver dependencias declaradas y acordar topics, frames, unidades y tiempos. No basta con renombrar `/Odometry`.
+1. **Contrastar el equipo declarado.** EDISA debe confirmar X500 V2/Pixhawk 6X/Pi 5/L2/Camera Module 3, qué está montado y operativo, firmware, SO y variante de cámara. El contenido de los kits no sustituye una inspección física. E28/E33–E35.
+2. **Estabilizar instalación y contratos.** Elegir provisionalmente un entorno reproducible, resolver dependencias declaradas y acordar topics, frames, unidades y tiempos. La incompatibilidad anterior `/Odometry` → `/slam/odom` ya está corregida en código (E36); siguen pendientes frames, validez temporal y ejecución integrada.
 3. **Primera demostración sin vuelo.** Reproducir una imagen con código conocido y pose conocida, guardar una observación persistente y verla en la GCS tras reiniciar. Usar una sesión nueva y comprobar hashes de entradas.
 4. **Navegación en simulación.** Un solo coordinador y una sola salida de control; estados, límites, pérdida de pose/enlace y cancelación verificables.
 5. **Banco y entorno controlado.** Solo tras validar transformaciones, continuidad de consignas, autoridad del operador y comportamiento de fallos. Esta revisión no habilita vuelo real.
