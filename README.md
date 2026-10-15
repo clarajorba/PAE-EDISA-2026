@@ -6,13 +6,25 @@ A drone equipped with a LiDAR sensor, camera, and onboard computer flies autonom
 
 ---
 
-## Work Packages
+## Repository Layout
 
-| Folder | Work Package | Description |
+Organised by what each part is and where it runs (until Oct 2026 it was split into `WP2/`, `WP3/` and `src/` — see [`docs/estado/REORGANIZACION.md`](docs/estado/REORGANIZACION.md) for the old → new map).
+
+| Folder | Runs on | Description |
 |---|---|---|
-| [`WP2/`](WP2/README.md) | **GCS & Drone Control** | Electron ground control app + ROS2 onboard stack + MAVLink bridge |
-| [`WP3/`](WP3/README.md) | **Computer Vision** | Box detection, volumetry estimation, unified pipeline |
-| [`src/`](src/) | **SLAM Libraries** | Point-LIO and Unitree LiDAR ROS2 driver (copied into the repo, not submodules; Point-LIO has local changes) |
+| [`ros2/`](ros2/) | Raspberry Pi / simulator | All ROS 2 packages, built with colcon |
+| ├ `dron_control/` | | Package `dron_control_sistema`: PX4 control via MAVROS, mission (`cerebro_node`, `mision.json`), SLAM→PX4 bridge |
+| ├ `dron_percepcion/` | | Pi camera, barcode detector, image+pose sync |
+| ├ `dron_gcs_bridge/` | | Nodes serving the GCS app: service manager, MAVLink bridge, mission planner |
+| ├ `dron_bringup/` | | Launch files and config (MAVROS for PX4, TFs, PX4 params) — empty for now |
+| └ `third_party/` | | Point-LIO (with local changes) and the Unitree L2 driver (copied, not submodules) |
+| [`raspberry/`](raspberry/) | Raspberry Pi | Start scripts, systemd services, MJPEG server, `deploy.sh` |
+| [`gcs/`](gcs/README.md) | Laptop | Electron ground control app |
+| [`vision/`](vision/README.md) | Laptop | Computer vision: box detection, volumetry, barcodes (formerly WP3) |
+| [`sim/`](sim/README.md) | Laptop | Simulation (PX4 SITL setup, Monte Carlo results) |
+| [`tools/`](tools/README.md) | Any | Debugging and network test scripts |
+| [`docs/`](docs/) | — | `setup/`, `arquitectura/`, `estado/`, `entregables/` |
+| [`data/`](data/README.md) | — | Large data kept out of git (rosbags, maps, weights) |
 
 ---
 
@@ -88,8 +100,8 @@ flowchart TD
 ## Video Demo
 
 <p align="center">
-  <a href="WP2/gcs/docs/assets/demo.mp4">
-    <img src="WP2/gcs/docs/assets/dashboard.png" width="80%" alt="▶ Click to watch demo"/>
+  <a href="gcs/docs/assets/demo.mp4">
+    <img src="gcs/docs/assets/dashboard.png" width="80%" alt="▶ Click to watch demo"/>
   </a>
   <br/><em>▶ Click to watch the demo video</em>
 </p>
@@ -99,12 +111,12 @@ flowchart TD
 ## Screenshots
 
 <p align="center">
-  <img src="WP2/gcs/docs/assets/dashboard.png" width="48%"/>
-  <img src="WP2/gcs/docs/assets/slam.png" width="48%"/>
+  <img src="gcs/docs/assets/dashboard.png" width="48%"/>
+  <img src="gcs/docs/assets/slam.png" width="48%"/>
 </p>
 <p align="center">
-  <img src="WP2/gcs/docs/assets/navigation.png" width="48%"/>
-  <img src="WP2/gcs/docs/assets/barcode.png" width="48%"/>
+  <img src="gcs/docs/assets/navigation.png" width="48%"/>
+  <img src="gcs/docs/assets/barcode.png" width="48%"/>
 </p>
 
 ---
@@ -113,12 +125,13 @@ flowchart TD
 
 ```bash
 # 1 — Deploy onboard software to the Raspberry Pi
-scp WP2/gcs/raspberry/* raspi5@<PI_IP>:~/
+./raspberry/deploy.sh raspi5@<PI_IP>          # ROS 2 packages → ~/slam_ws on the Pi
+scp raspberry/* raspi5@<PI_IP>:~/
 ssh raspi5@<PI_IP> "pip3 install --break-system-packages flask opencv-python pyzbar pymavlink"
 ssh raspi5@<PI_IP> "sudo systemctl enable --now rosbridge.service"
 
 # 2 — Launch the GCS app (laptop)
-cd WP2/gcs
+cd gcs
 npm install
 npm start
 ```
@@ -145,7 +158,7 @@ Client: EDISA
 ## Contributors
 
 <p align="center">
-  <img src="WP2/gcs/docs/assets/team.jpg" width="80%" alt="The Team"/>
+  <img src="gcs/docs/assets/team.jpg" width="80%" alt="The Team"/>
   <br/><em>The Team</em>
 </p>
 

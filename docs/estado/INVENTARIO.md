@@ -2,6 +2,8 @@
 
 > Revisión hecha el 13/10/2026 sobre la rama `feature/AiM` (comparada con `main`, `origin/WP2` y `origin/unificacio-WP3`).
 > Solo se ha **leído** código: no se ha ejecutado nada ni se ha tocado la Raspberry. Donde digo "funciona" o "roto" me baso en lo que hace el código, no en pruebas.
+>
+> **Las rutas de este documento son las de antes de la reorganización del 15/10/2026** (`WP2/`, `WP3/`, `src/`). Para saber dónde está ahora cada archivo, ver [REORGANIZACION.md](REORGANIZACION.md).
 
 ---
 

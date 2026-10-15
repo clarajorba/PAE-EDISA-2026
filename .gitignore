@@ -50,3 +50,7 @@ docs/slide_preview/
 *.db
 *.db-shm
 *.db-wal
+
+# Datos grandes (ver data/README.md)
+data/*
+!data/README.md
