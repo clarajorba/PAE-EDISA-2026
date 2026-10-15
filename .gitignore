@@ -15,14 +15,14 @@ camera_calibration.json
 #Ignore vscode AI rules
 .github/instructions/codacy.instructions.md
 
-# Camera calibration outputs (WP3/calibration)
-WP3/config/camera_calibration.json
+# Camera calibration outputs (vision/calibration)
+vision/config/camera_calibration.json
 WP3.zip
 
-# WP3 capture/results sessions (one new folder per run, never committed)
-WP3/volumetria/data/fotos_capturades/sessio_*/
-WP3/volumetria/outputs/Resultats_BLOC0/sessio_*/
-WP3/UNIFICACIO_FINAL/resultados_fotos_capturades/sessio_*/
+# vision (antes WP3) capture/results sessions (one new folder per run, never committed)
+vision/volumetria/data/fotos_capturades/sessio_*/
+vision/volumetria/outputs/Resultats_BLOC0/sessio_*/
+vision/UNIFICACIO_FINAL/resultados_fotos_capturades/sessio_*/
 
 # OS metadata
 .DS_Store

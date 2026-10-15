@@ -1,7 +1,7 @@
 """Regression tests for capture isolation, without a camera or ML imports.
 
 Run from the repository root with:
-    python3 -B -m unittest discover -s WP3/tests -v
+    python3 -B -m unittest discover -s vision/tests -v
 """
 
 import ast
@@ -15,7 +15,7 @@ import tempfile
 import unittest
 from unittest import mock
 
-from WP3.app import captura_segura
+from vision.app import captura_segura
 
 
 AUTO_METADATA = object()

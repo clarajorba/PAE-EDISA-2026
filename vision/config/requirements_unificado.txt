@@ -19,4 +19,4 @@ yapf
 #   macOS: brew install zbar
 #
 # Los modos detectar-imagenes y detectar-video tambien requieren:
-#   WP3/deteccion_cajas/weights/groundingdino_swint_ogc.pth
+#   vision/deteccion_cajas/weights/groundingdino_swint_ogc.pth

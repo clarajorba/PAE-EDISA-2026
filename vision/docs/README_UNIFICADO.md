@@ -1,6 +1,6 @@
-# WP3 - Programa unificado
+# vision (antes WP3) - Programa unificado
 
-Ejecutar desde la carpeta `WP3`:
+Ejecutar desde la carpeta `vision`:
 
 ```powershell
 python programa_unificado.py --help

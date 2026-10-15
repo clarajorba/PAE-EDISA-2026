@@ -106,7 +106,7 @@ Sustituye `<IP_DE_LA_PI>` por la dirección IP de tu Raspberry Pi (puedes verla 
 Si ya tienes el proyecto en la Pi, asegúrate de estar en el directorio correcto:
 
 ```bash
-cd ~/PAE-EDISA-2026/WP3
+cd ~/PAE-EDISA-2026/vision
 ```
 
 ---
@@ -171,7 +171,7 @@ Ajusta `LENS_POSITION` al valor que deje el tablero más nítido a la distancia 
 Abre un terminal directamente en la Raspberry Pi y ejecuta:
 
 ```bash
-cd ~/PAE-EDISA-2026/WP3
+cd ~/PAE-EDISA-2026/vision
 python3 calibration/calibrar_camara.py
 ```
 
@@ -186,7 +186,7 @@ ssh -X pi@<IP_DE_LA_PI>
 Una vez dentro de la Pi:
 
 ```bash
-cd ~/PAE-EDISA-2026/WP3
+cd ~/PAE-EDISA-2026/vision
 python3 calibration/calibrar_camara.py
 ```
 
@@ -246,7 +246,7 @@ Cuando pulses `q` con suficientes capturas, el script:
 1. **Imprime en el terminal** los parámetros calculados y el bloque de código listo para pegar.
 2. **Guarda el resultado** automáticamente en:
    ```
-   WP3/config/camera_calibration.json
+   vision/config/camera_calibration.json
    ```
 
 ### Interpretación del error de reproyección
@@ -279,7 +279,7 @@ dist_coeffs: np.ndarray = field(default_factory=lambda: np.array([
 ], dtype=np.float64))
 ```
 
-Los mismos valores quedan guardados en `WP3/config/camera_calibration.json`, que es la forma más cómoda de leerlos desde código.
+Los mismos valores quedan guardados en `vision/config/camera_calibration.json`, que es la forma más cómoda de leerlos desde código.
 
 ---
 

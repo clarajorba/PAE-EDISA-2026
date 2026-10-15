@@ -10,12 +10,12 @@ Instrucciones:
   2. Imprime un tablero de ajedrez de 8x8 cuadrados (7x7 esquinas interiores).
      Descárgalo en: https://calib.io/pages/camera-calibration-pattern-generator
   3. Mide con regla el lado de un cuadrado en metros y ajusta SQUARE_SIZE.
-  4. Ejecuta desde la carpeta WP3/:
+  4. Ejecuta desde la carpeta vision/:
          python calibration/calibrar_camara_pc.py
   5. Mueve el tablero delante de la cámara en distintas posiciones y ángulos.
      Pulsa ESPACIO para capturar (mínimo 15, recomendable 20-30).
   6. Pulsa 'q' cuando tengas suficientes capturas.
-     El script calibra y guarda el resultado en WP3/config/camera_calibration_pc.json.
+     El script calibra y guarda el resultado en vision/config/camera_calibration_pc.json.
   7. Usa camera_matrix y dist_coeffs (del JSON) en el código de visión.
 """
 
