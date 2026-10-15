@@ -1,5 +1,6 @@
 """Nodo interactivo con menú terminal para probar el Pixhawk F550 (PX4) vía MAVROS."""
 
+import math
 import threading
 import time
 
@@ -10,7 +11,7 @@ from rclpy.qos import QoSProfile, ReliabilityPolicy
 
 try:
     from mavros_msgs.msg import PositionTarget, State
-    from mavros_msgs.srv import CommandBool, CommandTOL, SetMode
+    from mavros_msgs.srv import CommandBool, SetMode
     MAVROS_OK = True
 except ImportError:
     MAVROS_OK = False
@@ -19,6 +20,8 @@ except ImportError:
 VEL = 0.3        # m/s
 DURACION = 1.0   # s por comando de movimiento
 TASA_HZ = 10     # Hz de publicación (PX4 OFFBOARD requiere > 2 Hz)
+VEL_DESPEGUE = 0.5      # m/s de subida continua durante el despegue en OFFBOARD
+TIMEOUT_DESPEGUE = 15.0  # s máximos para alcanzar la altura antes de cancelar
 
 
 class PixhawkMenuNode(Node):
@@ -36,6 +39,8 @@ class PixhawkMenuNode(Node):
         self._activo_hasta = 0.0
         self._ejecutando = True
         self._ultimo_ack_t = 0.0
+        self._z_objetivo = None   # altura local (m) a alcanzar en el despegue; None = sin despegue
+        self._despegue_t0 = 0.0
 
         self._vel_pub = self.create_publisher(
             Twist, '/mavros/setpoint_velocity/cmd_vel_unstamped', 10)
@@ -56,7 +61,6 @@ class PixhawkMenuNode(Node):
         if MAVROS_OK:
             self._cli_armar = self.create_client(CommandBool, '/mavros/cmd/arming')
             self._cli_modo = self.create_client(SetMode, '/mavros/set_mode')
-            self._cli_despegar = self.create_client(CommandTOL, '/mavros/cmd/takeoff')
 
         self.create_timer(1.0 / TASA_HZ, self._timer_vel)
 
@@ -82,6 +86,8 @@ class PixhawkMenuNode(Node):
     def _cb_ack_pixhawk(self, msg: 'PositionTarget') -> None:
         """Confirmar que el Pixhawk recibió el setpoint (eco MAVLink ID 85)."""
         vx, vy, vz = msg.velocity.x, msg.velocity.y, msg.velocity.z
+        if not all(math.isfinite(v) for v in (vx, vy, vz)):
+            return  # PX4 responde NaN cuando no controla por velocidad: no es un ACK real
         if abs(vx) < 0.01 and abs(vy) < 0.01 and abs(vz) < 0.01:
             return
         now = time.time()
@@ -96,11 +102,27 @@ class PixhawkMenuNode(Node):
     # ------------------------------------------------------------------
 
     def _timer_vel(self):
-        """Publicar cmd_vel a TASA_HZ Hz; pone a cero al vencer DURACION."""
+        """Publicar cmd_vel a TASA_HZ Hz; gestiona el despegue y pone a cero al vencer DURACION."""
         with self._lock:
-            if time.time() > self._activo_hasta:
-                self._cmd_vel = Twist()
-            cmd = self._cmd_vel
+            if self._z_objetivo is not None:
+                if not (self._armado and self._modo == 'OFFBOARD'):
+                    self._z_objetivo = None
+                    self.get_logger().warn('Despegue cancelado (no armado o no OFFBOARD)')
+                elif self._pos[2] >= self._z_objetivo - 0.05:
+                    self._z_objetivo = None
+                    self.get_logger().info(f'Despegue completado: Alt={self._pos[2]:.2f} m')
+                elif time.time() - self._despegue_t0 > TIMEOUT_DESPEGUE:
+                    self._z_objetivo = None
+                    self.get_logger().warn(
+                        f'Despegue cancelado: no alcanza la altura en {TIMEOUT_DESPEGUE:.0f} s')
+
+            if self._z_objetivo is not None:
+                cmd = Twist()
+                cmd.linear.z = VEL_DESPEGUE  # subida continua (Arriba, ENU)
+            else:
+                if time.time() > self._activo_hasta:
+                    self._cmd_vel = Twist()
+                cmd = self._cmd_vel
         self._vel_pub.publish(cmd)
 
     # ------------------------------------------------------------------
@@ -115,6 +137,7 @@ class PixhawkMenuNode(Node):
             cmd.linear.y = vy   # Norte (m/s ENU)
             cmd.linear.z = vz   # Arriba(m/s ENU)
             self._cmd_vel = cmd
+            self._z_objetivo = None  # una orden manual cancela el despegue
             self._activo_hasta = time.time() + DURACION
 
     def _parada_emergencia(self):
@@ -122,6 +145,7 @@ class PixhawkMenuNode(Node):
         with self._lock:
             self._cmd_vel = Twist()
             self._activo_hasta = 0.0
+            self._z_objetivo = None
         self.get_logger().warn('PARADA DE EMERGENCIA ACTIVADA')
 
     def _armar(self, valor: bool):
@@ -156,23 +180,15 @@ class PixhawkMenuNode(Node):
                 f"SetMode {modo}: {'OK' if f.result().mode_sent else 'FALLO'}"))
 
     def _despegar(self, altitud: float):
-        """Ejecutar despegue a la altitud indicada en metros."""
-        if not MAVROS_OK:
-            print('[ERROR] mavros_msgs no disponible')
+        """Despegar en OFFBOARD subiendo sin parar hasta `altitud` m sobre el punto actual."""
+        if not (self._armado and self._modo == 'OFFBOARD'):
+            print('[!] Para despegar: [3] OFFBOARD -> [1] Armar -> [4] (antes de 10 s)')
             return
-        if not self._cli_despegar.wait_for_service(timeout_sec=2.0):
-            print('[ERROR] Servicio /mavros/cmd/takeoff no disponible')
-            return
-        req = CommandTOL.Request()
-        req.altitude = altitud
-        req.latitude = 0.0
-        req.longitude = 0.0
-        req.min_pitch = 0.0
-        req.yaw = 0.0
-        fut = self._cli_despegar.call_async(req)
-        fut.add_done_callback(
-            lambda f: self.get_logger().info(
-                f"Takeoff {altitud} m: {'OK' if f.result().success else 'FALLO'}"))
+        with self._lock:
+            self._z_objetivo = self._pos[2] + altitud  # relativa al suelo actual, sin GPS
+            self._despegue_t0 = time.time()
+            self._activo_hasta = 0.0
+        print(f'[*] Subiendo a {VEL_DESPEGUE} m/s hasta Alt={self._z_objetivo:.2f} m')
 
     # ------------------------------------------------------------------
     # Menú de terminal
@@ -190,8 +206,8 @@ class PixhawkMenuNode(Node):
         print(f'  Pos    : N={y:+.2f}  E={x:+.2f}  Alt={z:.2f} m')
         print(sep)
         print('  PREPARACION (orden recomendado para PX4):')
-        print('    [3] Modo OFFBOARD  ->  [1] Armar  |  [2] Desarmar')
-        print('    [4] Despegar (1.5 m)              |  [5] Aterrizar')
+        print('    [3] OFFBOARD -> [1] Armar -> [4] Despegar (1.5 m)')
+        print('    [2] Desarmar (solo en suelo)  |  [5] Aterrizar')
         print(sep)
         print(f'  MOVIMIENTO ({VEL} m/s por {DURACION:.0f} s, frame ENU):')
         print('    [w] Norte    [s] Sur    [r] Subir')
@@ -220,7 +236,6 @@ class PixhawkMenuNode(Node):
                 print('[*] Cambiando a OFFBOARD...')
                 self._set_modo('OFFBOARD')
             elif opcion == '4':
-                print('[*] Despegando a 1.5 m...')
                 self._despegar(1.5)
             elif opcion == '5':
                 print('[*] Aterrizando (AUTO.LAND)...')
