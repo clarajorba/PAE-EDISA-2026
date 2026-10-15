@@ -43,3 +43,10 @@ docs/node_modules/
 # Generated docs
 docs/screenshots/
 docs/slide_preview/
+
+# Antes en WP2/.gitignore
+.vscode/
+.claude/settings.local.json
+*.db
+*.db-shm
+*.db-wal

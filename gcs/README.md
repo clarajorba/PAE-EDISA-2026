@@ -45,26 +45,17 @@ The system can autonomously fly a programmed waypoint route, scan a warehouse fo
 
 ## Repository Structure
 
+> El software de la Raspberry ya no está aquí: los nodos ROS 2 están en `../ros2/`
+> (`dron_gcs_bridge`, `dron_percepcion`) y los scripts y servicios en `../raspberry/`.
+
 ```
-drone-gcs/
+gcs/
 ├── main.js              ← Electron main process (window, menu, IPC)
 ├── preload.js           ← Renderer ↔ main bridge (contextBridge)
 ├── renderer/            ← Frontend application (runs in the Electron window)
 │   ├── index.html       ← UI shell (tabs, panels, styles)
 │   ├── app.js           ← All application logic (ROS subscriptions, charts, map)
 │   └── lib/roslib.js    ← ROSLIB.js (WebSocket ↔ ROS bridge client)
-├── raspberry/           ← Onboard software (deployed to Raspberry Pi 5)
-│   ├── gcs_control.py       ← ROS2 service manager (start/stop nodes on demand)
-│   ├── camera_publisher.py  ← Pi Camera → /camera/forward/image_raw/compressed
-│   ├── mjpeg_server.py      ← MJPEG HTTP server (Flask, port 8080)
-│   ├── barcode_detector.py  ← Barcode/QR detection + SLAM overlay
-│   ├── brain_node.py        ← Autonomous waypoint mission planner
-│   ├── mavlink_bridge.py    ← MAVLink ↔ ROS2 bridge (replaces MAVROS)
-│   ├── slam_launch.sh       ← LiDAR driver + Point-LIO SLAM launcher
-│   ├── start_all.sh         ← One-command full stack launcher
-│   ├── rosbridge_boot.sh    ← rosbridge_server startup script
-│   ├── rosbridge.service    ← systemd service (auto-start on boot)
-│   └── drone-gcs.service    ← systemd service for gcs_control
 └── docs/
     ├── Drone_GCS_Manual.pdf         ← Full technical manual
     ├── Drone_GCS_Presentation.pptx  ← Client presentation deck
@@ -159,7 +150,10 @@ flowchart TD
 ### Deploy to Raspberry Pi
 
 ```bash
-# Copy onboard software
+# Desde la raíz del repo: paquetes ROS 2 (se compilan en ~/slam_ws de la Pi)
+./raspberry/deploy.sh raspi5@<PI_IP>
+
+# Copy onboard scripts and services
 scp raspberry/* raspi5@<PI_IP>:~/
 
 # Install Python deps on the Pi

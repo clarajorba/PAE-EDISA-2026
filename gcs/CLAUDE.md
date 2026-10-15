@@ -63,9 +63,9 @@ A single-page app with **no framework, no bundler**. Everything is vanilla JS an
 | `/camera/forward/image_raw/compressed` | `sensor_msgs/CompressedImage` | Forward camera |
 | `/camera/down/image_raw/compressed` | `sensor_msgs/CompressedImage` | Downward camera |
 
-### 3. Raspberry Pi scripts (`raspberry/`)
+### 3. Raspberry Pi scripts (`../raspberry/` and `../ros2/`)
 
-These run on the Pi (ROS2 Jazzy) and are independent of the Electron app:
+These run on the Pi (ROS2 Jazzy) and are independent of the Electron app. Since the Oct 2026 reorganisation the ROS nodes live in `ros2/dron_percepcion` and `ros2/dron_gcs_bridge` (run with `ros2 run`); shell scripts, services and `mjpeg_server.py` live in `raspberry/`:
 
 - `camera_publisher.py` — picamera2 node publishing `sensor_msgs/CompressedImage`. Uses `BGR888` format (no cv2 color conversion needed). Key params: `device` (camera index), `topic`, `fps`, `width`, `height`, `jpeg_quality`.
 - `mjpeg_server.py` — Flask MJPEG server on port 8080, `/cam1` endpoint. Used by the dashboard img element.
