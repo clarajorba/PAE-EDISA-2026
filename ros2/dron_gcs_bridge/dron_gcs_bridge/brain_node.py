@@ -40,7 +40,10 @@ class BrainNode(Node):
         self.wp_idx  = 0
         self.done    = False
 
-        self.create_subscription(Odometry,  '/Odometry',                      self._on_odom, 10)
+        # Point-LIO del repo publica /slam/odom (el original, /aft_mapped_to_init)
+        self.declare_parameter('odom_topic', '/slam/odom')
+        odom_topic = self.get_parameter('odom_topic').value
+        self.create_subscription(Odometry,  odom_topic,                       self._on_odom, 10)
         self.create_subscription(NavSatFix, '/mavros/global_position/global', self._on_gps,  10)
 
         self._pub_sp   = self.create_publisher(PoseStamped, '/mavros/setpoint_position/local', 10)

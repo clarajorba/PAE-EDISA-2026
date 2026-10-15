@@ -5,7 +5,7 @@ camera, draws ROI boxes + SLAM overlay, and publishes results to the GCS.
 
 Subscribes:
   /camera/forward/image_raw/compressed  sensor_msgs/CompressedImage
-  /Odometry                             nav_msgs/Odometry   (SLAM pose)
+  /slam/odom                            nav_msgs/Odometry   (SLAM pose; param odom_topic)
   /tf                                   tf2_msgs/TFMessage  (fallback)
 
 Publishes:
@@ -75,7 +75,10 @@ class BarcodeDetector(Node):
             self._on_image, CAM_QOS)
 
         from nav_msgs.msg import Odometry
-        self.create_subscription(Odometry, '/Odometry', self._on_odom, 10)
+        # Point-LIO del repo publica /slam/odom (el original, /aft_mapped_to_init)
+        self.declare_parameter('odom_topic', '/slam/odom')
+        odom_topic = self.get_parameter('odom_topic').value
+        self.create_subscription(Odometry, odom_topic, self._on_odom, 10)
 
         from tf2_msgs.msg import TFMessage
         self.create_subscription(TFMessage, '/tf', self._on_tf, 10)
@@ -91,7 +94,7 @@ class BarcodeDetector(Node):
         self.get_logger().info(
             f'barcode_detector ready  cv2={CV2}  pyzbar={PYZBAR}')
 
-    # ── SLAM pose from /Odometry ──────────────────────────────────────────────
+    # ── SLAM pose from /slam/odom ─────────────────────────────────────────────
     def _on_odom(self, msg):
         p = msg.pose.pose
         self._slam_x = p.position.x

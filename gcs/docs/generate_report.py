@@ -915,7 +915,7 @@ story += [
         ("/cloud_registered",
          "sensor_msgs/PointCloud2",
          "Núvol de punts registrat per Point-LIO (SLAM)"),
-        ("/Odometry",
+        ("/slam/odom",
          "nav_msgs/Odometry",
          "Pose SLAM: posició + orientació en marc camera_init"),
         ("/tf",

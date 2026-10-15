@@ -495,8 +495,8 @@ function subscribe () {
     $('sl-status').className   = 'sv ok'
   })
 
-  // Point-LIO — odometría (/Odometry si existe, fallback por TF)
-  sub('/Odometry', 'nav_msgs/Odometry', m => {
+  // Point-LIO — odometría (/slam/odom en la versión del repo; fallback por TF)
+  sub('/slam/odom', 'nav_msgs/Odometry', m => {
     const p = m.pose.pose
     S.slamPose.x = p.position.x
     S.slamPose.y = p.position.y
