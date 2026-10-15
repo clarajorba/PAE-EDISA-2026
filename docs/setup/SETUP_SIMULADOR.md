@@ -161,17 +161,19 @@ Hacen falta 4 terminales abiertas a la vez:
 | 3 | `ros2 launch mavros px4.launch fcu_url:=udp://:14540@127.0.0.1:14580` |
 | 4 | `source ~/ros2_ws/install/setup.bash && ros2 run dron_control_sistema pixhawk_menu_node` |
 
-**Secuencia que funciona hoy:**
-1. En QGC: **Takeoff** y deslizar para confirmar (arma y sube a ~3 m en `AUTO.TAKEOFF`, luego Hold).
-2. En el menú: **`3`** → OFFBOARD. El dron se queda quieto en el aire, porque el nodo envía velocidad 0 a 10 Hz.
-3. **`w` / `s` / `a` / `d`** → Norte / Sur / Oeste / Este a 0,3 m/s durante 1 s.
-4. **`5`** → AUTO.LAND. Aterriza y se desarma solo.
+**Secuencia (todo desde el menú, probada el 15/10/2026):**
+1. **`3`** → OFFBOARD. PX4 lo acepta porque el nodo ya le envía velocidad 0 a 10 Hz.
+2. **`1`** → Armar. ⏱️ Hay **10 s** para el paso siguiente: si un dron armado no despega en ese tiempo, PX4 lo desarma solo (`COM_DISARM_PRFLT`).
+3. **`4`** → Despegar. El nodo pide subir a 0,5 m/s **sin parar** hasta 1,5 m por encima del punto actual y luego se queda quieto. Durante ~1–2 s los motores giran sin que el dron se mueva (es la rampa de PX4); después sube y aparece `Despegue completado: Alt=1.4x m`. Se cancela solo si sale de OFFBOARD, si se desarma o si en 15 s no llega. `0` o cualquier tecla de movimiento también lo cancelan.
+4. **`w` / `s` / `a` / `d`** → Norte / Sur / Oeste / Este a 0,3 m/s durante 1 s.
+5. **`5`** → AUTO.LAND. Aterriza y se desarma solo.
 
-**Lo que NO funciona del menú (y por qué):**
-- **Despegar en OFFBOARD con `r` no funciona.** PX4 tiene un despegue suave: 1 s de arranque de motores (`COM_SPOOLUP_TIME`) y una rampa de 3 s (`MPC_TKO_RAMP_T`) en la que el empuje empieza por debajo del necesario para despegar. Con los valores por defecto no puede subir hasta ~1,4 s después de pedirlo, y cada `r` solo pide subir durante 1 s. A los 10 s de estar armado sin despegar, PX4 desarma solo (`COM_DISARM_PRFLT`). Visto en el código de PX4 (`src/modules/mc_pos_control/Takeoff/Takeoff.cpp`) y en el log `.ulg`.
-- **`[4] Despegar`** usa el comando de despegue de MAVLink: PX4 pasa a `AUTO.TAKEOFF` (sale de OFFBOARD) y no arma el dron. Además envía `altitude=1.5` (que MAVLink entiende como altura sobre el nivel del mar) y `lat/lon = 0`.
-- **Chorro de `[PX4 ACK] vx=+nan ...`:** cuando PX4 no controla por velocidad (desarmado u otro modo) responde con `NaN`, y el filtro del nodo no lo descarta. El menú sigue funcionando debajo: se puede escribir y pulsar Enter igualmente.
-- **Si PX4 cree que está volando pero está en el suelo** (QGC dice "Flying" y solo ofrece Land): desarmar (`2`) se rechaza. Hay que usar **`5`** (aterrizar): detecta el suelo y desarma solo.
+**Alternativa con QGC:** pulsar **Takeoff** en QGC (arma y sube en `AUTO.TAKEOFF` a la altura que marca su barra, 3 m por defecto, no los 2,5 m de `MIS_TAKEOFF_ALT` de PX4) y, en el aire, pulsar `3` en el menú.
+
+**Por qué el despegue es así (lo que falló antes del arreglo):**
+- **Pulsos cortos de subida.** PX4 tiene un despegue suave: 1 s de arranque de motores (`COM_SPOOLUP_TIME`) y una rampa de 3 s (`MPC_TKO_RAMP_T`) en la que el empuje empieza por debajo del necesario para despegar. Con los valores por defecto, no puede subir hasta ~1,4 s después de pedirlo. Un pulso de 1 s (la tecla `r`) no basta para despegar: hay que pedir subir de forma continua. Visto en el código de PX4 (`src/modules/mc_pos_control/Takeoff/Takeoff.cpp`) y en el log `.ulg`.
+- **La orden de despegue de MAVLink (`/mavros/cmd/takeoff`), que usaba antes `[4]`.** Saca de OFFBOARD (pasa a `AUTO.TAKEOFF`), no arma el dron y espera la altitud **sobre el nivel del mar**. Además, el nodo enviaba `lat/lon = 0`: como no es `NaN` ("aquí mismo"), PX4 lo toma como destino real (0°, 0°, en el Atlántico). La línea hasta ese punto es casi horizontal, así que PX4 nunca detecta que se le pida subir y el dron no despega ni estando armado (`FlightTaskAuto.cpp`). En el aire, probablemente intentaría volar hacia allí. **No usar esa orden en interiores.**
+- **Si PX4 cree que está volando pero está en el suelo** (QGC dice "Flying" y solo ofrece Land): desarmar (`2`) se rechaza. Hay que usar **`5`** (aterrizar): detecta el suelo y desarma solo. **Nunca pulsar `2` con el dron en el aire.**
 - El control es **por velocidad**: cada pulsación no mueve exactamente 0,30 m y el dron deriva un poco. Para volar delante de la estantería habrá que controlar **por posición** (`/mavros/setpoint_position/local`).
 
 ---
@@ -179,4 +181,6 @@ Hacen falta 4 terminales abiertas a la vez:
 ## 8. Problemas que pueden aparecer
 
 - **"L'aplicació ros2 s'ha aturat inesperadament"** (informe de fallos de Ubuntu): aparece si un `ros2 topic ...` se corta con `timeout` (señal TERM). Es inofensivo; pulsa "No enviïs". Para evitarlo, usa `timeout -s INT ...` o Ctrl+C.
+- **Al cerrar, la terminal de PX4 se queda en "Exiting NOW."**: PX4 se ha cerrado, pero el servidor de Gazebo (`gz sim -s`, sin ventana) sigue funcionando. La ✕ de Gazebo solo cierra la ventana. Pulsa Ctrl+C en esa terminal. Para comprobar que no queda nada: `pgrep -af "gz sim"` (si no sale nada, está todo cerrado).
+- **Orden para cerrar:** menú (`q` y Ctrl+C) → MAVROS (Ctrl+C) → QGC (✕) → PX4 (`shutdown`).
 - **Logs de vuelo de PX4 (SITL):** `~/PX4-Autopilot/build/px4_sitl_default/rootfs/log/AAAA-MM-DD/*.ulg`. Se pueden abrir con <https://review.px4.io> o con `pyulog` (lo instala `ubuntu.sh`).
