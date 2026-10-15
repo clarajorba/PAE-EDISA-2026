@@ -1,8 +1,5 @@
 # Limpieza y verificación del código
 
-**Revisión documental del 15/10/2026:** auditoría técnica original en `2c90052e85dcc2e2cd317c6500de3a78371526c3`; rama actual `feature/AiM`, HEAD verificado antes de editar `ad9b23a70247cfa09c84e9301f7e64975fd2fda4`. Se incorpora información comunicada por el equipo el 14/10/2026 (E33/E34) y se contrastan solo correcciones posteriores relevantes (E36). Las pruebas originales no se han repetido; no hay inspección física ni validación operacional nuevas.
-
-**Borrador EDISA — 15/10/2026 — `feature/AiM` / `2c90052e85dcc2e2cd317c6500de3a78371526c3`.** La auditoría original creó documentación; esta revisión solo actualiza esos siete borradores. Ninguna corrección descrita como pendiente se ha implementado. Fuentes: [07](07_Matriz_Evidencias.md).
 
 ## Base Git y cambios recientes
 
