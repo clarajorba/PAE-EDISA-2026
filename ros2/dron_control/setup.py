@@ -31,6 +31,7 @@ setup(
             'lidar_bridge_node = dron_control_sistema.lidar_bridge_node:main',
             'pixhawk_menu_node = dron_control_sistema.pixhawk_menu_node:main',
             'spy_mavros = dron_control_sistema.spy_mavros:main',
+            'logic_bridge = dron_control_sistema.logic_bridge:main',
         ],
     },
 )

@@ -75,6 +75,7 @@ source "/opt/ros/$ROS_DISTRO_OVERRIDE/setup.bash"
 source "$HOME/rosbridge_ws/install/setup.bash"      2>/dev/null || true
 source "$HOME/unitree_lidar_ros2/install/setup.bash" 2>/dev/null || true
 source "$HOME/ros2_ws/install/setup.bash"            2>/dev/null || true
+source "$HOME/slam_ws/install/setup.bash"            2>/dev/null || true   # paquetes del repo (deploy.sh)
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 LOG_DIR="$HOME/gcs_logs/$(date +%Y%m%d_%H%M%S)"
@@ -116,7 +117,7 @@ sleep 2   # give rosbridge time to bind before other nodes publish
 # ─────────────────────────────────────────────────────────────────────────────
 if [[ "$ENABLE_CAM" == "1" ]]; then
   log "Starting camera publisher (ROS) — /dev/video$CAM_DEVICE  ${WIDTH}x${HEIGHT} @ ${FPS}fps"
-  python3 "$SCRIPT_DIR/camera_publisher.py" \
+  ros2 run dron_percepcion camera_publisher \
     --ros-args \
     -p device:=$CAM_DEVICE \
     -p topic:=/camera/forward/image_raw/compressed \
@@ -168,7 +169,7 @@ fi
 # ─────────────────────────────────────────────────────────────────────────────
 if [[ "$ENABLE_BRAIN" == "1" ]]; then
   log "Starting brain node  (DB: ~/brain_data.db)"
-  python3 "$SCRIPT_DIR/brain_node.py" \
+  ros2 run dron_gcs_bridge brain_node \
     > "$LOG_DIR/brain.log" 2>&1 &
   PIDS[brain]=$!
 fi

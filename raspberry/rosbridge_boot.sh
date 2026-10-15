@@ -20,4 +20,6 @@ trap "kill $BRIDGE_PID 2>/dev/null; wait" EXIT INT TERM
 sleep 3
 
 echo "[boot] Starting GCS control node ..."
-exec python3 "$SCRIPT_DIR/gcs_control.py"
+# gcs_control busca aquí slam_launch.sh y mjpeg_server.py
+export PAE_RASPBERRY_DIR="$SCRIPT_DIR"
+exec ros2 run dron_gcs_bridge gcs_control

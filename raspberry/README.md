@@ -1,13 +1,27 @@
 # raspberry/ — Onboard Software Stack
 
-All Python nodes and shell scripts that run on the **Raspberry Pi 5** aboard the drone. They form a complete ROS2 stack — no cloud, no external services needed.
+Shell scripts, systemd services and the MJPEG server that run on the **Raspberry Pi 5** aboard the drone.
+
+> **Reorganización (oct 2026):** los nodos ROS 2 que antes estaban aquí ahora son paquetes en `ros2/`
+> y se lanzan con `ros2 run`:
+>
+> | Antes (`python3 ...`) | Ahora |
+> |---|---|
+> | `gcs_control.py`, `mavlink_bridge.py`, `brain_node.py` | `ros2 run dron_gcs_bridge <nodo>` |
+> | `camera_publisher.py`, `barcode_detector.py` | `ros2 run dron_percepcion <nodo>` |
+>
+> Aquí quedan solo los `.sh`, los `.service`, `mjpeg_server.py` (Flask, no es ROS) y `deploy.sh`.
+> Las secciones de abajo describen cada nodo; su código está en `ros2/`.
 
 ---
 
 ## Deployment
 
 ```bash
-# From your dev machine
+# From your dev machine — ROS 2 packages (compiles them in ~/slam_ws on the Pi)
+./raspberry/deploy.sh raspi5@<PI_IP>
+
+# From your dev machine — scripts and services
 scp raspberry/* raspi5@<PI_IP>:~/
 
 # On the Pi — install Python dependencies

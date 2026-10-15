@@ -18,3 +18,6 @@ class MonitorNode(Node):
 def main():
     rclpy.init()
     rclpy.spin(MonitorNode())
+
+if __name__ == '__main__':
+    main()

@@ -28,3 +28,6 @@ class ArtificialCamera(Node):
 def main():
     rclpy.init()
     rclpy.spin(ArtificialCamera())
+
+if __name__ == '__main__':
+    main()

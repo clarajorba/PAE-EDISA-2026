@@ -12,6 +12,7 @@ TOPIC="/camera/forward/image_raw/compressed"
 
 # Source ROS2 (adjust distro name if needed: humble / iron / jazzy)
 source /opt/ros/${ROS_DISTRO:-jazzy}/setup.bash
+source "$HOME/slam_ws/install/setup.bash" 2>/dev/null || true   # paquetes del repo (deploy.sh)
 
 echo "[GCS] Starting rosbridge on port 9090..."
 ros2 launch rosbridge_server rosbridge_websocket_launch.xml &
@@ -21,7 +22,7 @@ BRIDGE_PID=$!
 sleep 2
 
 echo "[GCS] Starting camera publisher: device=$DEVICE ${WIDTH}x${HEIGHT} @ ${FPS}fps"
-python3 "$(dirname "$0")/camera_publisher.py" \
+ros2 run dron_percepcion camera_publisher \
   --ros-args \
   -p device:=$DEVICE \
   -p topic:=$TOPIC \
@@ -34,7 +35,7 @@ CAM_PID=$!
 BRAIN_PID=""
 if [ "$BRAIN" = "1" ]; then
   echo "[GCS] Starting brain node (autonomous mission planner)..."
-  python3 "$(dirname "$0")/brain_node.py" &
+  ros2 run dron_gcs_bridge brain_node &
   BRAIN_PID=$!
   echo "      Brain PID=$BRAIN_PID  DB=~/brain_data.db"
 fi

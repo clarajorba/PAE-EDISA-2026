@@ -22,3 +22,6 @@ def main():
     rclpy.init()
     node = TelemetryViewer()
     rclpy.spin(node)
+
+if __name__ == '__main__':
+    main()

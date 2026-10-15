@@ -15,7 +15,9 @@ import rclpy
 from rclpy.node import Node
 from std_msgs.msg import String
 
-SCRIPTS     = os.path.dirname(os.path.realpath(__file__))
+# Scripts no-ROS (slam_launch.sh, mjpeg_server.py): carpeta raspberry/ del repo.
+# rosbridge_boot.sh exporta PAE_RASPBERRY_DIR; si no, se asume que se copiaron a ~.
+SCRIPTS     = os.environ.get('PAE_RASPBERRY_DIR', os.path.expanduser('~'))
 LOG_DIR     = os.path.expanduser('~/gcs_logs')
 ROS_DISTRO  = os.environ.get('ROS_DISTRO', 'jazzy')
 
@@ -25,7 +27,7 @@ SERVICE_CMDS = {
         'bash', f'{SCRIPTS}/slam_launch.sh',
     ],
     'camera': [
-        'python3', f'{SCRIPTS}/camera_publisher.py',
+        'ros2', 'run', 'dron_percepcion', 'camera_publisher',
         '--ros-args',
         '-p', 'device:=0',
         '-p', 'topic:=/camera/forward/image_raw/compressed',
@@ -33,7 +35,7 @@ SERVICE_CMDS = {
         '-p', 'fps:=30', '-p', 'jpeg_quality:=80',
     ],
     'camera2': [
-        'python3', f'{SCRIPTS}/camera_publisher.py',
+        'ros2', 'run', 'dron_percepcion', 'camera_publisher',
         '--ros-args',
         '-p', 'device:=1',
         '-p', 'topic:=/camera/down/image_raw/compressed',
@@ -45,13 +47,13 @@ SERVICE_CMDS = {
         '0', '8080', '640', '480', '80',
     ],
     'mavros': [
-        'python3', f'{SCRIPTS}/mavlink_bridge.py',
+        'ros2', 'run', 'dron_gcs_bridge', 'mavlink_bridge',
     ],
     'brain': [
-        'python3', f'{SCRIPTS}/brain_node.py',
+        'ros2', 'run', 'dron_gcs_bridge', 'brain_node',
     ],
     'barcode': [
-        'python3', f'{SCRIPTS}/barcode_detector.py',
+        'ros2', 'run', 'dron_percepcion', 'barcode_detector',
     ],
 }
 

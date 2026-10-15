@@ -132,15 +132,15 @@ ros2 topic hz /mavros/local_position/pose            # ~30 Hz; la pose está en 
 
 ---
 
-## 6. Nuestro paquete `dron_control_sistema` (WP2/ros2)
+## 6. Nuestros paquetes ROS 2 (carpeta `ros2/` del repo)
 
 ```bash
 mkdir -p ~/ros2_ws/src                                                     # workspace colcon, fuera del repo
-ln -s ~/PAE-EDISA-2026/WP2/ros2 ~/ros2_ws/src/dron_control_sistema         # enlace al repo, no copia: los cambios del repo se ven directamente
+ln -s ~/PAE-EDISA-2026/ros2 ~/ros2_ws/src/pae                              # enlace a toda la carpeta ros2/ del repo, no copia: los cambios del repo se ven directamente
 cd ~/ros2_ws && rosdep check --from-paths src --ignore-src -r              # "All system dependencies have been satisfied"
-colcon build --symlink-install                                             # compilar (los .py se enlazan, no hace falta recompilar al editarlos)
+colcon build --symlink-install --packages-select dron_control_sistema dron_percepcion dron_gcs_bridge dron_bringup   # compilar los nuestros (Point-LIO y el driver del L2 solo hacen falta en la Pi)
 source ~/ros2_ws/install/setup.bash                                        # cargar el paquete en esta terminal
-ros2 pkg executables dron_control_sistema                                  # tiene que listar 6 nodos
+ros2 pkg executables dron_control_sistema                                  # tiene que listar 7 nodos
 ```
 
 Compila sin errores en Jazzy. Pendiente (no impide ejecutar):
